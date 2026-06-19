@@ -110,10 +110,10 @@ body {
 /* Host overlay: a small floating panel over the mcp-voice-hooks UI. */
 #jarvis-avatar-overlay {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
-  width: 240px;
-  height: 240px;
+  right: 16px;
+  top: 76px;
+  width: 210px;
+  height: 210px;
   z-index: 2147483000;
   pointer-events: none; /* never block the host UI */
   background: transparent;

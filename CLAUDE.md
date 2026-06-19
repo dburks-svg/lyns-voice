@@ -120,17 +120,48 @@ closed; the injector rejects symlinks and backs up/restores copied assets; the
 speech-recognition/synthesis patches restore conditionally; and idle now shifts to the
 spec's dark navy/slate spectrum. Regression tests were added for each fix.
 
-## Wiring into mcp-voice-hooks (separately-approved step)
+## Live mcp-voice-hooks integration (DONE)
 
-`mcp-voice-hooks` is not installed in this environment. To wire the avatar into the
-live voice UI:
+`mcp-voice-hooks` v1.0.40 is installed and the avatar overlays its real Voice Mode UI.
+What was wired up (2026-06-19):
 
-1. Install/configure `mcp-voice-hooks` for Claude Code (its server serves
-   `public/index.html` on `http://localhost:5111`).
-2. `npm run build:lib` to produce `dist/avatar.js`.
-3. `npm run inject -- --path "<...>/mcp-voice-hooks/public/index.html"`
-   (or set `MCP_VOICE_HOOKS_DIR` and run `npm run inject`).
-4. Open `http://localhost:5111`. To undo: `npm run inject:revert -- --path <same>`.
+- Installed globally: `C:\Users\mstar\AppData\Roaming\npm\node_modules\mcp-voice-hooks`
+  (server entry `dist/unified-server.js`, serves `public/index.html` on
+  `http://localhost:5111`).
+- Avatar injected into its `public/index.html` (idempotent block + copied
+  `avatar.js` / `avatar.css` / `three.min.js`; original saved as
+  `index.html.avatar-backup`). Verified live: the neon orb floats top-right of the
+  conversation area (screenshot at `test-results/voice-hooks-injected.png`).
+- Voice hooks installed for this project (`.claude/settings.local.json`, gitignored).
+- MCP server registered for project `D:\AI Entity` as `voice-hooks`
+  (`claude mcp add voice-hooks -- node <...>\mcp-voice-hooks\bin\cli.js`), pointed at
+  the injected global copy so the avatar is what Claude Code serves. `claude mcp list`
+  reports it Connected.
 
-Until then, `npm run dev` serves the standalone demo, which exercises all four
-states with real mic + real speech synthesis.
+### Use it (after a Claude Code restart)
+
+1. Restart Claude Code in `D:\AI Entity` (run `claude`). The `voice-hooks` MCP server
+   starts and opens `http://localhost:5111` (the injected UI) after ~3s.
+2. Use **Chrome** (browser speech recognition); enable voice responses for TTS.
+3. Click **Start Listening** and speak; send one CLI message to begin the conversation.
+   The avatar breathes (idle), compresses to your voice (listening), pulses while Claude
+   works (thinking), and reacts to word boundaries while Claude speaks.
+
+### Maintain / undo
+
+- Re-inject after a package update: `npm run build:lib` then
+  `npm run inject -- --path "C:\Users\mstar\AppData\Roaming\npm\node_modules\mcp-voice-hooks\public\index.html"`.
+- Remove the avatar only: `npm run inject:revert -- --path <same path>`.
+- Fully unregister: `claude mcp remove voice-hooks` and
+  `node <...>\mcp-voice-hooks\bin\cli.js uninstall` (removes the project voice hooks).
+
+### Platform note
+
+`mcp-voice-hooks` is macOS-oriented: browser STT/TTS and the avatar overlay work on
+Windows with Chrome, but *system* TTS (`say`) is mac-only, and the delivery hooks use
+shell-style commands. If spoken input does not auto-deliver to Claude on Windows, use
+the browser's trigger-word/Send control to push utterances. The avatar itself is
+platform-independent.
+
+The standalone demo (`npm run dev`) remains available to exercise all four states
+without the voice stack.

@@ -20,3 +20,6 @@ Thumbs.db
 
 # Injector backups produced in a host package (never committed here)
 *.avatar-backup
+
+# Local Claude Code hook config (written by mcp-voice-hooks install-hooks)
+.claude/
