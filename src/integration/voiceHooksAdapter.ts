@@ -2,6 +2,7 @@ import { Avatar, type AvatarOptions } from '../avatar/Avatar';
 import { AvatarController, type AvatarState } from '../avatar/AvatarController';
 import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
+import { MediaTts } from '../audio/MediaTts';
 import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
 import { prefersReducedMotion, safeSetText } from './dom';
@@ -158,17 +159,28 @@ export function attachToVoiceHooks(
 
   const sync = (): void => controller.setState(deriveState(signals));
 
+  const onSpeakingStart = (): void => {
+    signals.speaking = true;
+    signals.pendingResponse = false;
+    sync();
+  };
+  const onSpeakingEnd = (): void => {
+    signals.speaking = false;
+    sync();
+  };
+  const onBoundary = (): void => controller.pulse();
+
+  // Server-audio TTS: on Windows the native speechSynthesis engine is silent
+  // (SAPI audio never reaches the output device), so we play a server-rendered
+  // WAV through Web Audio instead, and drive the Speaking animation from the
+  // real audio amplitude. Falls back to the native engine when the endpoint is
+  // unavailable (e.g. macOS), so other hosts are unaffected.
+  const mediaTts = new MediaTts({ onSpeakingStart, onSpeakingEnd, onBoundary });
+
   const speech = new SpeechReactor({
-    onSpeakingStart: () => {
-      signals.speaking = true;
-      signals.pendingResponse = false;
-      sync();
-    },
-    onSpeakingEnd: () => {
-      signals.speaking = false;
-      sync();
-    },
-    onBoundary: () => controller.pulse(),
+    onSpeakingStart,
+    onSpeakingEnd,
+    onBoundary,
     // Primary mood-strip point: the spoken text is where Claude reliably emits
     // the tag. Strip it before TTS speaks it, and apply the mood.
     transformText: (text) => {
@@ -178,8 +190,15 @@ export function attachToVoiceHooks(
       }
       return parsed.stripped;
     },
+    mediaSpeak: (text) => mediaTts.speak(text),
   });
   speech.attach();
+
+  // Resume the audio context on the first user gesture so the browser autoplay
+  // policy allows server-audio playback. Cheap and idempotent; kept live so a
+  // later suspend (tab backgrounding) is recovered on the next interaction.
+  const unlockAudio = (): void => mediaTts.unlock();
+  doc.addEventListener('pointerdown', unlockAudio, true);
 
   // Secondary mood-strip point: a backstop on the rendered transcript so a
   // marker is never left visible if it bypasses the speak path.
@@ -238,6 +257,8 @@ export function attachToVoiceHooks(
     controller,
     dispose: () => {
       speech.detach();
+      mediaTts.dispose();
+      doc.removeEventListener('pointerdown', unlockAudio, true);
       mic.stop();
       unpatch();
       micObserver?.disconnect();

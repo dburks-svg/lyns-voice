@@ -25,6 +25,15 @@ export interface SpeechReactorOptions {
    * throw is swallowed so it can never block speech.
    */
   transformText?: (text: string) => string;
+  /**
+   * Optional server-audio TTS path. When provided, each utterance's (already
+   * mood-stripped) text is routed here first. If it resolves `true` the native
+   * `speechSynthesis` call is skipped entirely (the media player drives the
+   * speaking state through its own callbacks). If it resolves `false` or
+   * rejects, we fall back to the native engine, so hosts where the browser voice
+   * works are unaffected. Used on Windows, where `speechSynthesis` is silent.
+   */
+  mediaSpeak?: (text: string) => Promise<boolean>;
 }
 
 type SpeakFn = (utterance: SpeechSynthesisUtterance) => void;
@@ -36,6 +45,7 @@ export class SpeechReactor {
   private readonly onBoundary?: () => void;
   private readonly syntheticIntervalMs: number;
   private readonly transformText?: (text: string) => string;
+  private readonly mediaSpeak?: (text: string) => Promise<boolean>;
 
   private originalSpeak: SpeakFn | null = null;
   private patchedSpeak: SpeakFn | null = null;
@@ -55,6 +65,7 @@ export class SpeechReactor {
     this.onBoundary = options.onBoundary;
     this.syntheticIntervalMs = options.syntheticIntervalMs ?? 180;
     this.transformText = options.transformText;
+    this.mediaSpeak = options.mediaSpeak;
   }
 
   get isSpeaking(): boolean {
@@ -84,21 +95,49 @@ export class SpeechReactor {
       } catch {
         // Text rewriting must never block speech.
       }
-      try {
-        this.bindUtterance(utterance);
-        // Retain a strong reference until the utterance ends so Chrome cannot GC
-        // it mid-speak (a silent-failure bug the host code does not guard).
-        this.keepAlive(utterance);
-      } catch {
-        // Binding / keep-alive must never block speech.
+      // Prefer the server-audio path where available (Windows, where the native
+      // engine is silent). If it declines or fails, fall back to the native
+      // engine so other hosts are unaffected. mediaSpeak never rejects, but we
+      // guard anyway so a bug there can never block speech.
+      if (this.mediaSpeak) {
+        const text = utterance.text;
+        Promise.resolve()
+          .then(() => this.mediaSpeak?.(text))
+          .then((handled) => {
+            if (!handled) {
+              this.fallbackSpeak(utterance);
+            }
+          })
+          .catch(() => this.fallbackSpeak(utterance));
+        return;
       }
-      // Nudge a paused or stuck engine before speaking (another Chrome cause of
-      // silent speech). Best-effort: never blocks the original speak.
-      this.resumeIfPaused();
-      original(utterance);
+      this.fallbackSpeak(utterance);
     };
     this.patchedSpeak = patched;
     synthesis.speak = patched;
+  }
+
+  /**
+   * Speak through the native engine: bind reactivity, hold an anti-GC reference,
+   * nudge a paused engine, then call the original speak. Never blocks speech.
+   */
+  private fallbackSpeak(utterance: SpeechSynthesisUtterance): void {
+    const original = this.originalSpeak;
+    if (!original) {
+      return;
+    }
+    try {
+      this.bindUtterance(utterance);
+      // Retain a strong reference until the utterance ends so Chrome cannot GC
+      // it mid-speak (a silent-failure bug the host code does not guard).
+      this.keepAlive(utterance);
+    } catch {
+      // Binding / keep-alive must never block speech.
+    }
+    // Nudge a paused or stuck engine before speaking (another Chrome cause of
+    // silent speech). Best-effort: never blocks the original speak.
+    this.resumeIfPaused();
+    original(utterance);
   }
 
   detach(): void {

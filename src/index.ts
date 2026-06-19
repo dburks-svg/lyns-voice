@@ -25,6 +25,8 @@ export type { MicAnalyserOptions, GetUserMedia } from './audio/MicAnalyser';
 export { computeBands } from './audio/bands';
 export { SpeechReactor } from './audio/SpeechReactor';
 export type { SpeechReactorOptions } from './audio/SpeechReactor';
+export { MediaTts } from './audio/MediaTts';
+export type { MediaTtsOptions, AudioContextLike } from './audio/MediaTts';
 export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';
 export type { VoiceSignals, VoiceHooksHandle } from './integration/voiceHooksAdapter';
 export { safeSetText, prefersReducedMotion } from './integration/dom';

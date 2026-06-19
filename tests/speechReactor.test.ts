@@ -166,6 +166,66 @@ describe('SpeechReactor', () => {
     expect(reactor.isSpeaking).toBe(false);
   });
 
+  it('routes through mediaSpeak and skips native speak when it handles the text', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(true);
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hello' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mediaSpeak).toHaveBeenCalledWith('hello');
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it('falls back to native speak when mediaSpeak declines', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(false);
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hi' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(speak).toHaveBeenCalledWith(utterance);
+  });
+
+  it('falls back to native speak when mediaSpeak rejects', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockRejectedValue(new Error('boom'));
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hi' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(speak).toHaveBeenCalledWith(utterance);
+  });
+
+  it('mood-strips the text before routing it to mediaSpeak', async () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(true);
+    const reactor = new SpeechReactor({
+      synthesis,
+      mediaSpeak,
+      transformText: (t) => t.replace('<<mood:happy>> ', ''),
+    });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: '<<mood:happy>> done' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mediaSpeak).toHaveBeenCalledWith('done');
+  });
+
   it('detach while speaking emits a terminal end so consumers do not latch', () => {
     const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
     const onSpeakingEnd = vi.fn();
