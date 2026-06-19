@@ -4,7 +4,8 @@
  * and adds auto-attach.
  */
 
-export const VERSION = '0.3.0';
+// Keep in sync with package.json "version"; tests/version.test.ts enforces it.
+export const VERSION = '0.4.0';
 
 export { Avatar, IDLE_PARAMS } from './avatar/Avatar';
 export type { AvatarOptions, RendererFactory } from './avatar/Avatar';
