@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { DEFAULT_CONFIG, type Skin } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
 import { loadHeadGeometry, type GLTFLoaderFactory } from './gltf';
-import { AVATAR_FRAGMENT_SHADER, AVATAR_VERTEX_SHADER, HEAD_FRAGMENT_SHADER } from './shaders';
+import {
+  AVATAR_FRAGMENT_SHADER,
+  AVATAR_VERTEX_SHADER,
+  HALO_FRAGMENT_SHADER,
+  HEAD_FRAGMENT_SHADER,
+} from './shaders';
 
 export type RendererFactory = (canvas: HTMLCanvasElement) => THREE.WebGLRenderer;
 
@@ -50,6 +55,11 @@ const HEAD_AMPLITUDE_SCALE = 0.3;
 /** Max yaw (radians) for the head's forward-facing sway (keeps the face to camera). */
 const HEAD_SWAY_MAX = 0.35;
 
+/** The head's glow shell is rendered this much larger than the head. */
+const HALO_SCALE = 1.06;
+/** The halo glow is a fraction of the head glow so additive blending never blows out. */
+const HALO_GLOW_SCALE = 0.6;
+
 /** Deformation multiplier when the user prefers reduced motion (calm, not frozen). */
 const REDUCED_MOTION_FACTOR = 0.15;
 
@@ -91,6 +101,10 @@ export class Avatar {
 
   /** When true, breathing is gentled and rotation is disabled (a11y). */
   reducedMotion = false;
+
+  /** Additive glow shell around the head (transparency-preserving "bloom"). */
+  private halo: THREE.Mesh | null = null;
+  private haloMaterial: THREE.ShaderMaterial | null = null;
 
   /**
    * Resolves when the requested skin is ready: immediately for the orb, or after
@@ -145,6 +159,7 @@ export class Avatar {
     this.material = this.buildMaterial(this.skin);
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.scene.add(this.mesh);
+    this.syncHalo();
 
     // A 'head' skin loads its GLB and atomically adopts it when ready. A load
     // failure keeps the fallback geometry (graceful), so `ready` never rejects.
@@ -199,6 +214,38 @@ export class Avatar {
   }
 
   /**
+   * Create or remove the head's additive glow shell to match the current skin. A
+   * slightly enlarged BackSide shell rendered additively reads as a soft rim glow
+   * and, being ordinary geometry, keeps the canvas transparent (unlike bloom).
+   */
+  private syncHalo(): void {
+    const want = this.skin === 'head';
+    if (want && !this.halo) {
+      const rim = (this.material.uniforms.uColorA.value as THREE.Color).clone();
+      this.haloMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          uColorA: { value: rim },
+          uGlow: { value: (this.material.uniforms.uGlow.value as number) * HALO_GLOW_SCALE },
+        },
+        vertexShader: AVATAR_VERTEX_SHADER,
+        fragmentShader: HALO_FRAGMENT_SHADER,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.BackSide,
+      });
+      this.halo = new THREE.Mesh(this.geometry, this.haloMaterial);
+      this.halo.scale.setScalar(HALO_SCALE);
+      this.mesh.add(this.halo);
+    } else if (!want && this.halo) {
+      this.mesh.remove(this.halo);
+      this.haloMaterial?.dispose();
+      this.halo = null;
+      this.haloMaterial = null;
+    }
+  }
+
+  /**
    * Switch skins at runtime (used by the demo toggle). Rebuilds the material and
    * swaps geometry: 'orb' rebuilds the icosahedron; 'head' reloads the GLB.
    * Resolves when the new skin is ready.
@@ -213,6 +260,7 @@ export class Avatar {
     this.mesh.material = this.material;
     previousMaterial.dispose();
     this.amplitudeScale = defaultAmplitudeScale(next);
+    this.syncHalo();
     if (next === 'head') {
       return this.loadHead().catch((err: unknown) => {
         console.warn('[avatar] head model failed to load; keeping current geometry', err);
@@ -238,6 +286,9 @@ export class Avatar {
     this.restNormals = Float32Array.from(normal.array as Float32Array);
     this.geometry = next;
     this.mesh.geometry = next;
+    if (this.halo) {
+      this.halo.geometry = next; // the glow shell shares the head geometry
+    }
     if (previous !== next) {
       previous.dispose();
     }
@@ -266,12 +317,18 @@ export class Avatar {
   /** Set emissive glow intensity (state-driven). */
   setGlow(value: number): void {
     this.material.uniforms.uGlow.value = value;
+    if (this.haloMaterial) {
+      this.haloMaterial.uniforms.uGlow.value = value * HALO_GLOW_SCALE;
+    }
   }
 
   /** Set the rim and core colors (state-driven tint; hex numbers). */
   setColors(rim: number, core: number): void {
     (this.material.uniforms.uColorA.value as THREE.Color).set(rim);
     (this.material.uniforms.uColorB.value as THREE.Color).set(core);
+    if (this.haloMaterial) {
+      (this.haloMaterial.uniforms.uColorA.value as THREE.Color).set(rim);
+    }
   }
 
   /**
@@ -336,6 +393,7 @@ export class Avatar {
   dispose(): void {
     this.stop();
     this.scene.remove(this.mesh);
+    this.haloMaterial?.dispose();
     this.geometry.dispose();
     this.material.dispose();
     this.renderer.dispose();

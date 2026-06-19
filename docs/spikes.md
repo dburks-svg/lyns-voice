@@ -10,13 +10,19 @@ Question: at Three.js r128, does an EffectComposer + UnrealBloomPass chain
 preserve the overlay's transparent clear (`setClearColor(0x000000, 0)`) so the
 host page still shows through?
 
-- Safe default (shipped now): glow comes from the in-shader fresnel rim plus the
-  CSS drop-shadow on the canvas, with an optional scaled "halo" shell. Bloom is
-  OFF.
-- Confirmation: run in the real browser (Playwright + Chromium, or the live host)
-  during Phase 6 / Phase 10, where a real WebGL context exists. happy-dom has no
-  WebGL, so this cannot be confirmed in unit tests.
-- Outcome: PENDING (defaulting to no-bloom until confirmed).
+- **Outcome: FAILED (resolved 2026-06-19), halo shell shipped instead.** Tested in
+  real headless Chromium (Playwright element screenshots of the canvas over a
+  magenta backdrop, using the alpha-safe pass chain: `RenderPass.clearAlpha=0`,
+  `UnrealBloomPass.renderToScreen=false`, final `ShaderPass(CopyShader)` to screen).
+  With bloom ON the canvas turned OPAQUE BLACK (the backdrop stopped showing
+  through); with bloom OFF the backdrop showed through cleanly. r128's
+  postprocessing assumes an opaque screen clear, so EffectComposer bloom cannot be
+  the transparent-overlay glow. The bloom experiment was reverted.
+- **Shipped instead: the halo shell.** A slightly enlarged BackSide additive
+  fresnel shell around the head (`HALO_FRAGMENT_SHADER` + `Avatar.syncHalo`) gives a
+  soft volumetric rim glow and, being ordinary geometry, preserves transparency
+  (verified: head glows, magenta backdrop still shows through). Combined with the
+  existing fresnel + CSS drop-shadow it matches the reference look.
 
 ## Spike B - mood-tag reliability (gates the Phase 5 primary mood source)
 

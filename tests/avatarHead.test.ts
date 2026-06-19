@@ -149,6 +149,44 @@ describe('Avatar geometry lifecycle', () => {
     expect(full.mesh.rotation.y).not.toBe(0);
   });
 
+  it('head skin adds an additive backside glow shell sharing the head geometry', () => {
+    const { factory } = mockRendererFactory();
+    const head = new Avatar({ rendererFactory: factory, skin: 'head' });
+    const halo = head.mesh.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+    expect(halo).toBeDefined();
+    if (!halo) return;
+    const mat = halo.material as THREE.ShaderMaterial;
+    expect(mat.blending).toBe(THREE.AdditiveBlending);
+    expect(mat.side).toBe(THREE.BackSide);
+    expect(mat.depthWrite).toBe(false);
+    expect(halo.geometry).toBe(head.geometry); // shares the head geometry
+
+    const orb = new Avatar({ rendererFactory: factory, skin: 'orb' });
+    expect(orb.mesh.children.some((c) => (c as THREE.Mesh).isMesh)).toBe(false);
+  });
+
+  it('the glow shell follows the head color and skin changes', async () => {
+    const { factory } = mockRendererFactory();
+    const headGeo = new THREE.BoxGeometry(2, 3, 2);
+    const a = new Avatar({
+      rendererFactory: factory,
+      skin: 'orb',
+      gltfLoaderFactory: headLoaderFactory(headGeo),
+    });
+    const hasHalo = (): boolean => a.mesh.children.some((c) => (c as THREE.Mesh).isMesh);
+    expect(hasHalo()).toBe(false);
+
+    await a.setSkin('head');
+    expect(hasHalo()).toBe(true);
+    a.setColors(0xff0000, 0x000000);
+    const halo = a.mesh.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+    const mat = halo?.material as THREE.ShaderMaterial | undefined;
+    expect(mat && (mat.uniforms.uColorA.value as THREE.Color).getHex()).toBe(0xff0000);
+
+    await a.setSkin('orb');
+    expect(hasHalo()).toBe(false);
+  });
+
   it('head load failure resolves ready and keeps the orb (graceful fallback)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { factory } = mockRendererFactory();
