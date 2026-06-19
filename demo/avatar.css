@@ -107,22 +107,28 @@ body {
   pointer-events: none;
 }
 
-/* Host overlay: a small floating panel over the mcp-voice-hooks UI. */
+/*
+ * Host overlay: a full-window background layer so the glowing head is the
+ * focal point behind the voice UI. `pointer-events: none` plus a low z-index
+ * keep the host UI fully interactive on top. (Host-specific stacking fixes, if
+ * any prove necessary, are added after live verification, not pre-emptively.)
+ */
 #jarvis-avatar-overlay {
   position: fixed;
-  right: 16px;
-  top: 76px;
-  width: 210px;
-  height: 210px;
-  z-index: 2147483000;
-  pointer-events: none; /* never block the host UI */
-  background: transparent;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, rgba(0, 119, 255, 0.14), transparent 62%), transparent;
 }
 
+/* Canvas fills the overlay so the camera aspect matches the displayed size. */
 #jarvis-avatar-overlay canvas {
+  display: block;
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 0 14px rgba(0, 240, 255, 0.5));
+  filter: drop-shadow(0 0 22px rgba(0, 240, 255, 0.42)) drop-shadow(0 0 60px rgba(0, 119, 255, 0.3));
 }
 
 /* Shrink the control panel on small/short windows (floating side-panel mode). */

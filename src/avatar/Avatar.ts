@@ -47,6 +47,9 @@ const DEFAULTS = {
 /** Head meshes breathe at a fraction of the orb amplitude so they pulse, not melt. */
 const HEAD_AMPLITUDE_SCALE = 0.3;
 
+/** Max yaw (radians) for the head's forward-facing sway (keeps the face to camera). */
+const HEAD_SWAY_MAX = 0.35;
+
 function defaultAmplitudeScale(skin: Skin): number {
   return skin === 'head' ? HEAD_AMPLITUDE_SCALE : DEFAULT_CONFIG.amplitudeScale;
 }
@@ -290,7 +293,12 @@ export class Avatar {
   update(time: number): void {
     this.beforeRender?.(time);
     this.deform(time);
-    this.mesh.rotation.y = time * this.idleRotationSpeed;
+    // The orb spins freely; the head sways within a bounded yaw so its face
+    // stays toward the camera (it is the face of Claude Code, not a top).
+    this.mesh.rotation.y =
+      this.skin === 'head'
+        ? Math.sin(time * this.idleRotationSpeed) * HEAD_SWAY_MAX
+        : time * this.idleRotationSpeed;
     this.renderer.render(this.scene, this.camera);
   }
 

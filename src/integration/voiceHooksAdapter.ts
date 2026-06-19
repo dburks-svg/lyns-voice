@@ -126,6 +126,19 @@ export function attachToVoiceHooks(
   avatar.beforeRender = (time) => controller.tick(time);
   avatar.start();
 
+  // The overlay is a full-window dominant layer; keep the canvas sized to it.
+  const view = doc.defaultView ?? window;
+  const resizeToHost = (): void =>
+    avatar.resize(
+      overlay.clientWidth || view.innerWidth || 1,
+      overlay.clientHeight || view.innerHeight || 1,
+    );
+  resizeToHost();
+  view.addEventListener('resize', resizeToHost);
+  const resizeObserver =
+    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resizeToHost()) : null;
+  resizeObserver?.observe(overlay);
+
   const sync = (): void => controller.setState(deriveState(signals));
 
   const speech = new SpeechReactor({
@@ -205,6 +218,8 @@ export function attachToVoiceHooks(
       unpatch();
       micObserver?.disconnect();
       transcript?.dispose();
+      view.removeEventListener('resize', resizeToHost);
+      resizeObserver?.disconnect();
       avatar.dispose();
       overlay.remove();
     },

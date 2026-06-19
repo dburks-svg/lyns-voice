@@ -108,6 +108,20 @@ describe('Avatar geometry lifecycle', () => {
     expect(avatar.amplitudeScale).toBe(1);
   });
 
+  it('head sways within a bounded yaw; orb spins freely', () => {
+    const { factory } = mockRendererFactory();
+    const head = new Avatar({ rendererFactory: factory, skin: 'head' });
+    for (const t of [1, 5, 13, 47, 100]) {
+      head.update(t);
+      expect(Math.abs(head.mesh.rotation.y)).toBeLessThanOrEqual(0.35 + 1e-6);
+    }
+
+    const orb = new Avatar({ rendererFactory: factory, skin: 'orb' });
+    orb.update(10);
+    expect(orb.mesh.rotation.y).toBeCloseTo(10 * orb.idleRotationSpeed);
+    expect(Math.abs(orb.mesh.rotation.y)).toBeGreaterThan(0.35); // unbounded spin
+  });
+
   it('head load failure resolves ready and keeps the orb (graceful fallback)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { factory } = mockRendererFactory();
