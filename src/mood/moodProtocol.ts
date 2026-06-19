@@ -20,8 +20,13 @@ export interface ParsedMood {
   stripped: string;
 }
 
-// Bounded keyword length (1..24) keeps this linear: no catastrophic backtracking.
-const MARKER = /<<\s*mood\s*:\s*([a-z0-9_-]{1,24})\s*>>/gi;
+// Strip ANY mood-marker-shaped token (even malformed ones, e.g. `<<mood:>>` or an
+// overlong/space-containing name) so a stray marker is never spoken or shown. The
+// body is a bounded negated class `[^>]{0,64}` (linear, no catastrophic
+// backtracking). The captured body is then validated separately to pick the mood.
+const MARKER = /<<\s*mood\s*:([^>]{0,64})>>/gi;
+// A valid mood keyword: the body trimmed to 1..24 of [a-z0-9_-].
+const KEYWORD = /^\s*([a-z0-9_-]{1,24})\s*$/i;
 
 export function parseMoodMarker(text: string): ParsedMood {
   if (!text || text.indexOf('<<') === -1) {
@@ -30,14 +35,17 @@ export function parseMoodMarker(text: string): ParsedMood {
   let mood: Mood | null = null;
   MARKER.lastIndex = 0;
   const stripped = text
-    .replace(MARKER, (_match: string, name: string): string => {
+    .replace(MARKER, (_match: string, body: string): string => {
       if (mood === null) {
-        const lower = name.toLowerCase();
-        if (isMood(lower)) {
-          mood = lower;
+        const keyword = KEYWORD.exec(body);
+        if (keyword) {
+          const lower = keyword[1].toLowerCase();
+          if (isMood(lower)) {
+            mood = lower;
+          }
         }
       }
-      return '';
+      return ''; // always strip, valid keyword or not
     })
     .replace(/^\s+/, '');
   return { mood, stripped };

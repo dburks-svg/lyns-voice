@@ -131,6 +131,10 @@ export class Avatar {
   private readonly colorB: number;
   private readonly headUrl: string;
   private readonly gltfLoaderFactory: GLTFLoaderFactory | undefined;
+  // Monotonic token: a head load whose token is stale (a newer skin change or
+  // dispose happened) is discarded instead of adopted (cf. MicAnalyser.startToken).
+  private headLoadToken = 0;
+  private disposed = false;
 
   constructor(options: AvatarOptions = {}) {
     this.radius = options.radius ?? DEFAULTS.radius;
@@ -206,11 +210,20 @@ export class Avatar {
     if (!this.gltfLoaderFactory) {
       return Promise.resolve();
     }
+    const token = this.headLoadToken;
     return loadHeadGeometry({
       url: this.headUrl,
       loaderFactory: this.gltfLoaderFactory,
       targetRadius: this.radius,
-    }).then((geometry) => this.adoptGeometry(geometry));
+    }).then((geometry) => {
+      // Discard a stale/late load: the avatar was disposed, or a newer skin
+      // change happened, while the GLB was loading. Free the orphaned geometry.
+      if (this.disposed || token !== this.headLoadToken) {
+        geometry.dispose();
+        return;
+      }
+      this.adoptGeometry(geometry);
+    });
   }
 
   /**
@@ -254,6 +267,8 @@ export class Avatar {
     if (next === this.skin) {
       return Promise.resolve();
     }
+    // Invalidate any in-flight head load so it cannot clobber the new skin.
+    this.headLoadToken += 1;
     this.skin = next;
     const previousMaterial = this.material;
     this.material = this.buildMaterial(next);
@@ -391,9 +406,18 @@ export class Avatar {
 
   /** Release GPU resources and detach the canvas. */
   dispose(): void {
+    // Mark disposed and bump the token so an in-flight head load is discarded
+    // (it frees its geometry) instead of mutating a torn-down avatar.
+    this.disposed = true;
+    this.headLoadToken += 1;
     this.stop();
     this.scene.remove(this.mesh);
+    if (this.halo) {
+      this.mesh.remove(this.halo);
+    }
     this.haloMaterial?.dispose();
+    this.halo = null;
+    this.haloMaterial = null;
     this.geometry.dispose();
     this.material.dispose();
     this.renderer.dispose();

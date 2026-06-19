@@ -74,6 +74,18 @@ describe('AvatarController.setMicBands', () => {
     expect(b.scale.y).toBeCloseTo(1 - 0.5 * 0.35); // bass still drives compression
   });
 
+  it('no-bands listening is byte-identical to the original level-only formula', () => {
+    const { avatar, params, scale, glow } = fakeAvatar();
+    const c = new AvatarController({ avatar });
+    c.setState('listening');
+    c.setMicLevel(1); // no bands set
+    c.tick(0);
+    expect(params.amplitude).toBeCloseTo(0.55); // 0.05 + 1 * 0.5
+    expect(params.frequency).toBeCloseTo(1.4); // unchanged (treble = 0)
+    expect(glow.value).toBeCloseTo(2.0); // 1.2 + 1 * 0.8
+    expect(scale.y).toBeCloseTo(0.65); // 1 - 1 * 0.35
+  });
+
   it('clears bands when leaving the listening state', () => {
     const { avatar, params } = fakeAvatar();
     const controller = new AvatarController({ avatar });

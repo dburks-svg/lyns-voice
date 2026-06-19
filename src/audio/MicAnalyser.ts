@@ -63,6 +63,7 @@ export class MicAnalyser {
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
   private buffer: Uint8Array<ArrayBuffer> = new Uint8Array(0);
+  private bandsBuffer: Float32Array | null = null;
   private rafId = 0;
   private active = false;
   // Monotonic token used to cancel an in-flight start() if stop() lands during
@@ -137,7 +138,10 @@ export class MicAnalyser {
       this.analyser.getByteFrequencyData(this.buffer);
       this.onLevel(computeLevel(this.buffer));
       if (this.onBands) {
-        this.onBands(computeBands(this.buffer, this.bandCount));
+        if (!this.bandsBuffer || this.bandsBuffer.length !== this.bandCount) {
+          this.bandsBuffer = new Float32Array(this.bandCount);
+        }
+        this.onBands(computeBands(this.buffer, this.bandCount, this.bandsBuffer));
       }
     } else {
       this.onLevel(0);

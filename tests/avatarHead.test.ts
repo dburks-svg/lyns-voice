@@ -34,6 +34,24 @@ function failingLoaderFactory() {
   });
 }
 
+/** Loader whose onLoad fires only after the returned `resolve` is called. */
+function deferredLoaderFactory(geometry: THREE.BufferGeometry) {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const factory = (): GLTFLoaderLike => ({
+    load: (_url, onLoad) => {
+      void gate.then(() => {
+        const scene = new THREE.Group();
+        scene.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+        onLoad({ scene } as GLTFResultLike);
+      });
+    },
+  });
+  return { factory, release };
+}
+
 describe('Avatar geometry lifecycle', () => {
   it('orb skin: ready resolves immediately and keeps the icosahedron', async () => {
     const { factory } = mockRendererFactory();
@@ -185,6 +203,68 @@ describe('Avatar geometry lifecycle', () => {
 
     await a.setSkin('orb');
     expect(hasHalo()).toBe(false);
+  });
+
+  it('discards a stale head load that resolves after a skin toggle (race guard)', async () => {
+    const { factory } = mockRendererFactory();
+    const headGeo = new THREE.BoxGeometry(2, 3, 2);
+    const deferred = deferredLoaderFactory(headGeo);
+    const a = new Avatar({ rendererFactory: factory, skin: 'orb', gltfLoaderFactory: deferred.factory });
+
+    const headPromise = a.setSkin('head'); // in-flight, not yet resolved
+    await a.setSkin('orb'); // toggle back before the head load resolves
+    expect(a.skin).toBe('orb');
+
+    deferred.release(); // the stale head load now resolves
+    await headPromise;
+
+    // It must be discarded: still the orb, never the head geometry.
+    expect(a.skin).toBe('orb');
+    expect(a.geometry).toBeInstanceOf(THREE.IcosahedronGeometry);
+    expect(a.geometry).not.toBe(headGeo);
+  });
+
+  it('discards an in-flight head load after dispose (no use-after-free, no leak)', async () => {
+    const { factory } = mockRendererFactory();
+    const headGeo = new THREE.BoxGeometry(2, 3, 2);
+    const headDispose = vi.spyOn(headGeo, 'dispose');
+    const deferred = deferredLoaderFactory(headGeo);
+    const a = new Avatar({ rendererFactory: factory, skin: 'head', gltfLoaderFactory: deferred.factory });
+
+    a.dispose();
+    deferred.release(); // late load resolves on a torn-down avatar
+    await a.ready;
+
+    expect(headDispose).toHaveBeenCalled(); // discarded load freed its geometry
+    expect(a.geometry).toBeInstanceOf(THREE.IcosahedronGeometry); // never adopted
+  });
+
+  it('disposes the halo material and detaches the halo on dispose', () => {
+    const { factory } = mockRendererFactory();
+    const a = new Avatar({ rendererFactory: factory, skin: 'head' });
+    const halo = a.mesh.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+    expect(halo).toBeDefined();
+    if (!halo) return;
+    const haloMatDispose = vi.spyOn(halo.material as THREE.Material, 'dispose');
+    a.dispose();
+    expect(haloMatDispose).toHaveBeenCalledTimes(1);
+    expect(a.mesh.children.some((c) => (c as THREE.Mesh).isMesh)).toBe(false);
+  });
+
+  it('disposes discarded materials across setSkin churn (no leak)', async () => {
+    const { factory } = mockRendererFactory();
+    const headGeo = new THREE.BoxGeometry(2, 3, 2);
+    const a = new Avatar({
+      rendererFactory: factory,
+      skin: 'orb',
+      gltfLoaderFactory: headLoaderFactory(headGeo),
+    });
+    const orbMatDispose = vi.spyOn(a.material, 'dispose');
+    await a.setSkin('head');
+    expect(orbMatDispose).toHaveBeenCalledTimes(1); // old orb material freed
+    const headMatDispose = vi.spyOn(a.material, 'dispose');
+    await a.setSkin('orb');
+    expect(headMatDispose).toHaveBeenCalledTimes(1); // old head material freed
   });
 
   it('head load failure resolves ready and keeps the orb (graceful fallback)', async () => {

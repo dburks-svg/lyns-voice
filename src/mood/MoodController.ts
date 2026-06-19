@@ -37,6 +37,7 @@ export class MoodController implements MoodLayer {
   private eCore = MOOD_TABLE.neutral.core;
   private eWeight = MOOD_TABLE.neutral.weight;
   private eGlowMul = MOOD_TABLE.neutral.glowMul;
+  private eFlutter = MOOD_TABLE.neutral.flutter;
   private flutter = 0;
   private lastTime: number | null = null;
 
@@ -58,7 +59,10 @@ export class MoodController implements MoodLayer {
     this.eCore = lerpHex(this.eCore, target.core, a);
     this.eWeight = lerp(this.eWeight, target.weight, a);
     this.eGlowMul = lerp(this.eGlowMul, target.glowMul, a);
-    this.flutter = target.flutter * (0.5 + 0.5 * Math.sin(time * FLUTTER_RATE));
+    // Ease the shimmer amplitude too, so it ramps in with the color/glow rather
+    // than snapping to full on a mood change.
+    this.eFlutter = lerp(this.eFlutter, target.flutter, a);
+    this.flutter = this.eFlutter * (0.5 + 0.5 * Math.sin(time * FLUTTER_RATE));
   }
 
   colors(activityRim: number, activityCore: number): readonly [number, number] {

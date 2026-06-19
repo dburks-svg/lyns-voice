@@ -213,6 +213,9 @@ async function main() {
   const safeTarget = assertSafeTargetPath(target);
   await assertNotSymlink(safeTarget);
   const publicDir = path.dirname(safeTarget);
+  // Also reject a symlinked containing directory so assets cannot be redirected
+  // (lstat on index.html alone resolves the parent through a symlink).
+  await assertNotSymlink(publicDir);
   const backupPath = safeTarget + BACKUP_SUFFIX;
   const original = await readFile(safeTarget, 'utf8');
 

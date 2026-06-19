@@ -61,6 +61,26 @@ describe('parseMoodMarker', () => {
     expect(parsed.mood).toBe('happy');
     expect(parsed.stripped).toBe('ready');
   });
+
+  it('strips MALFORMED markers too (always-strip contract), yielding no mood', () => {
+    for (const input of [
+      '<<mood:>> hi',
+      '<<mood: bad name>> hi',
+      '<<mood:waytoolongkeywordnameforamoodxxxx>> hi',
+    ]) {
+      const parsed = parseMoodMarker(input);
+      expect(parsed.stripped).not.toContain('<<');
+      expect(parsed.mood).toBeNull();
+    }
+  });
+
+  it('is linear-time on pathological input (no ReDoS)', () => {
+    const input = '<<mood:' + 'a'.repeat(200000) + '<<'.repeat(100000);
+    const start = Date.now();
+    const parsed = parseMoodMarker(input);
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(parsed.mood).toBeNull(); // unterminated/garbage, no valid mood
+  });
 });
 
 describe('colorBlend', () => {

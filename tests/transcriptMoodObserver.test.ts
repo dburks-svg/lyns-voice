@@ -55,6 +55,24 @@ describe('TranscriptMoodObserver', () => {
     observer.dispose();
   });
 
+  it('emits the mood exactly once and converges (self-mutation is idempotent)', async () => {
+    const root = document.createElement('div');
+    const onMood = vi.fn();
+    const observer = new TranscriptMoodObserver({ root, onMood });
+    observer.start();
+
+    const msg = document.createElement('div');
+    msg.textContent = '<<mood:happy>> hi';
+    root.appendChild(msg);
+
+    await flush();
+    await flush(); // let the self-triggered characterData mutation settle
+
+    expect(onMood).toHaveBeenCalledTimes(1); // the rewrite does not re-emit
+    expect(msg.textContent).toBe('hi');
+    observer.dispose();
+  });
+
   it('stops processing after dispose', async () => {
     const root = document.createElement('div');
     const onMood = vi.fn();

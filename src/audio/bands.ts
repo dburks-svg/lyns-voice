@@ -13,12 +13,15 @@ function edge(b: number, bandCount: number, n: number): number {
   return Math.pow(n + 1, b / bandCount) - 1;
 }
 
-export function computeBands(data: Uint8Array, bandCount: number): Float32Array {
+export function computeBands(data: Uint8Array, bandCount: number, out?: Float32Array): Float32Array {
   const count = Math.max(0, Math.floor(bandCount));
-  const out = new Float32Array(count);
+  // Reuse the caller's buffer when it fits (avoids a per-frame allocation in the
+  // listening loop); otherwise allocate.
+  const result = out && out.length === count ? out : new Float32Array(count);
   const n = data.length;
   if (count === 0 || n === 0) {
-    return out;
+    result.fill(0);
+    return result;
   }
   for (let b = 0; b < count; b += 1) {
     const lo = Math.min(n - 1, Math.floor(edge(b, count, n)));
@@ -29,7 +32,7 @@ export function computeBands(data: Uint8Array, bandCount: number): Float32Array 
       sum += data[i];
       bins += 1;
     }
-    out[b] = bins > 0 ? sum / bins / 255 : 0;
+    result[b] = bins > 0 ? sum / bins / 255 : 0;
   }
-  return out;
+  return result;
 }
