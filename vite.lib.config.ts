@@ -14,7 +14,7 @@ export default defineConfig({
     emptyOutDir: false,
     sourcemap: true,
     lib: {
-      entry: 'src/index.ts',
+      entry: 'src/bundle.ts',
       name: 'JarvisAvatar',
       formats: ['iife'],
       fileName: () => 'avatar.js',

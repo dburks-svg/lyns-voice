@@ -1,16 +1,26 @@
 /**
- * Public entry point for the Jarvis avatar bundle.
- *
- * Built two ways:
- *  - IIFE global (`window.JarvisAvatar`) via `vite.lib.config.ts`, loaded by the
- *    injected `mcp-voice-hooks` page after the vendored global `THREE`; and
- *  - imported directly (ESM) by the standalone demo during development.
+ * Public API barrel (no side effects). The demo imports this directly; the
+ * injected host bundle (`bundle.ts`) re-exports it as the global `JarvisAvatar`
+ * and adds auto-attach.
  */
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 export { Avatar, IDLE_PARAMS } from './avatar/Avatar';
 export type { AvatarOptions, RendererFactory } from './avatar/Avatar';
+export { AvatarController } from './avatar/AvatarController';
+export type {
+  AvatarState,
+  ControllableAvatar,
+  AvatarControllerOptions,
+} from './avatar/AvatarController';
 export { displacement } from './avatar/deformation';
 export type { DeformationParams } from './avatar/deformation';
 export { perlin3 } from './avatar/noise';
+export { MicAnalyser, computeLevel } from './audio/MicAnalyser';
+export type { MicAnalyserOptions, GetUserMedia } from './audio/MicAnalyser';
+export { SpeechReactor } from './audio/SpeechReactor';
+export type { SpeechReactorOptions } from './audio/SpeechReactor';
+export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';
+export type { VoiceSignals, VoiceHooksHandle } from './integration/voiceHooksAdapter';
+export { safeSetText } from './integration/dom';

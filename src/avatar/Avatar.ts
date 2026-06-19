@@ -56,6 +56,12 @@ export class Avatar {
 
   idleRotationSpeed = DEFAULTS.rotationSpeed;
 
+  /**
+   * Optional per-frame hook invoked at the start of `update`, before deform and
+   * render. The state controller plugs in here so there is a single render loop.
+   */
+  beforeRender: ((time: number) => void) | null = null;
+
   private readonly canvas: HTMLCanvasElement;
   private readonly restPositions: Float32Array;
   private readonly restNormals: Float32Array;
@@ -148,6 +154,7 @@ export class Avatar {
 
   /** Advance one frame: deform, rotate, render. */
   update(time: number): void {
+    this.beforeRender?.(time);
     this.deform(time);
     this.mesh.rotation.y = time * this.idleRotationSpeed;
     this.renderer.render(this.scene, this.camera);
