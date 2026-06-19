@@ -13,12 +13,20 @@ export const MARKER_BEGIN = '<!-- AVATAR:BEGIN (jarvis-avatar) -->';
 export const MARKER_END = '<!-- AVATAR:END (jarvis-avatar) -->';
 
 /**
- * Asset files copied next to the target `index.html` and referenced by the
- * injected markup. Order matters: the vendored global `THREE` must load before
- * the avatar bundle that consumes it.
+ * Asset files copied next to the target `index.html`. The script/style assets
+ * are also referenced by the injected markup (see buildInjectionBlock); `head.glb`
+ * is fetched at runtime by the bundle, so it is copied but never tagged. Script
+ * load order matters: the vendored global `THREE` loads first, then GLTFLoader
+ * (which augments `THREE`), then the avatar bundle that consumes both.
  * @type {readonly string[]}
  */
-export const ASSET_FILES = Object.freeze(['three.min.js', 'avatar.css', 'avatar.js']);
+export const ASSET_FILES = Object.freeze([
+  'three.min.js',
+  'GLTFLoader.js',
+  'avatar.css',
+  'avatar.js',
+  'head.glb',
+]);
 
 /**
  * @param {string} value
@@ -42,6 +50,7 @@ export function buildInjectionBlock() {
     MARKER_BEGIN,
     '    <link rel="stylesheet" href="avatar.css" />',
     '    <script src="three.min.js"></script>',
+    '    <script src="GLTFLoader.js"></script>',
     '    <script src="avatar.js"></script>',
     MARKER_END,
   ].join('\n');

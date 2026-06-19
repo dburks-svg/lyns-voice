@@ -4,7 +4,7 @@ import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
 import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
-import { safeSetText } from './dom';
+import { prefersReducedMotion, safeSetText } from './dom';
 import { TranscriptMoodObserver } from './transcriptMoodObserver';
 
 /**
@@ -109,6 +109,7 @@ export function attachToVoiceHooks(
   doc.body.appendChild(overlay);
 
   const avatar = new Avatar(avatarOptions);
+  avatar.reducedMotion = prefersReducedMotion(doc.defaultView);
   avatar.mount(overlay);
 
   const signals: VoiceSignals = { micActive: false, speaking: false, pendingResponse: false };

@@ -122,6 +122,33 @@ describe('Avatar geometry lifecycle', () => {
     expect(Math.abs(orb.mesh.rotation.y)).toBeGreaterThan(0.35); // unbounded spin
   });
 
+  it('reducedMotion gentles breathing and disables rotation (a11y)', () => {
+    const { factory } = mockRendererFactory();
+    const maxDelta = (a: Avatar): number => {
+      const pos = a.geometry.getAttribute('position').array as Float32Array;
+      const rest = Float32Array.from(pos);
+      a.update(3);
+      let m = 0;
+      for (let i = 0; i < pos.length; i += 1) {
+        m = Math.max(m, Math.abs(pos[i] - rest[i]));
+      }
+      return m;
+    };
+
+    const full = new Avatar({ rendererFactory: factory, skin: 'orb' });
+    full.setParams({ amplitude: 0.5 });
+    const reduced = new Avatar({ rendererFactory: factory, skin: 'orb' });
+    reduced.reducedMotion = true;
+    reduced.setParams({ amplitude: 0.5 });
+
+    const reducedDelta = maxDelta(reduced);
+    const fullDelta = maxDelta(full);
+    expect(reducedDelta).toBeGreaterThan(0); // calm, not frozen
+    expect(reducedDelta).toBeLessThan(fullDelta);
+    expect(reduced.mesh.rotation.y).toBe(0);
+    expect(full.mesh.rotation.y).not.toBe(0);
+  });
+
   it('head load failure resolves ready and keeps the orb (graceful fallback)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { factory } = mockRendererFactory();

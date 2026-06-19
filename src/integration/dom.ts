@@ -10,3 +10,11 @@ export function safeSetText(element: HTMLElement | null, text: string): void {
     element.textContent = text;
   }
 }
+
+/** Whether the user has requested reduced motion (a11y). Safe when matchMedia is absent. */
+export function prefersReducedMotion(view?: Window | null): boolean {
+  const w = view ?? (typeof window !== 'undefined' ? window : null);
+  return Boolean(
+    w && typeof w.matchMedia === 'function' && w.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
+}

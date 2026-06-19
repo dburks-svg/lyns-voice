@@ -6,6 +6,7 @@ import {
   MicAnalyser,
   SpeechReactor,
   VERSION,
+  prefersReducedMotion,
   type AvatarState,
   type Skin,
 } from '../src/index';
@@ -31,6 +32,7 @@ function bootstrap(): void {
     headUrl,
     gltfLoaderFactory: () => new GLTFLoader(),
   });
+  avatar.reducedMotion = prefersReducedMotion(window);
   avatar.mount(root);
 
   const setStatus = (text: string): void => {

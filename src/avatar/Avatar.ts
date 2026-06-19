@@ -50,6 +50,9 @@ const HEAD_AMPLITUDE_SCALE = 0.3;
 /** Max yaw (radians) for the head's forward-facing sway (keeps the face to camera). */
 const HEAD_SWAY_MAX = 0.35;
 
+/** Deformation multiplier when the user prefers reduced motion (calm, not frozen). */
+const REDUCED_MOTION_FACTOR = 0.15;
+
 function defaultAmplitudeScale(skin: Skin): number {
   return skin === 'head' ? HEAD_AMPLITUDE_SCALE : DEFAULT_CONFIG.amplitudeScale;
 }
@@ -85,6 +88,9 @@ export class Avatar {
 
   /** Multiplier on deformation magnitude (head meshes scale this down). */
   amplitudeScale: number;
+
+  /** When true, breathing is gentled and rotation is disabled (a11y). */
+  reducedMotion = false;
 
   /**
    * Resolves when the requested skin is ready: immediately for the orb, or after
@@ -277,11 +283,12 @@ export class Avatar {
     const arr = attribute.array as Float32Array;
     const rest = this.restPositions;
     const norm = this.restNormals;
+    const motion = this.amplitudeScale * (this.reducedMotion ? REDUCED_MOTION_FACTOR : 1);
     for (let i = 0; i < arr.length; i += 3) {
       const rx = rest[i];
       const ry = rest[i + 1];
       const rz = rest[i + 2];
-      const d = displacement(rx, ry, rz, time, this.params) * this.amplitudeScale;
+      const d = displacement(rx, ry, rz, time, this.params) * motion;
       arr[i] = rx + norm[i] * d;
       arr[i + 1] = ry + norm[i + 1] * d;
       arr[i + 2] = rz + norm[i + 2] * d;
@@ -293,12 +300,16 @@ export class Avatar {
   update(time: number): void {
     this.beforeRender?.(time);
     this.deform(time);
-    // The orb spins freely; the head sways within a bounded yaw so its face
-    // stays toward the camera (it is the face of Claude Code, not a top).
-    this.mesh.rotation.y =
-      this.skin === 'head'
-        ? Math.sin(time * this.idleRotationSpeed) * HEAD_SWAY_MAX
-        : time * this.idleRotationSpeed;
+    if (this.reducedMotion) {
+      this.mesh.rotation.y = 0;
+    } else {
+      // The orb spins freely; the head sways within a bounded yaw so its face
+      // stays toward the camera (it is the face of Claude Code, not a top).
+      this.mesh.rotation.y =
+        this.skin === 'head'
+          ? Math.sin(time * this.idleRotationSpeed) * HEAD_SWAY_MAX
+          : time * this.idleRotationSpeed;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 

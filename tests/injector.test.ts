@@ -22,13 +22,21 @@ const FIXTURE = readFileSync(
 );
 
 describe('buildInjectionBlock', () => {
-  it('wraps asset references between the begin/end markers', () => {
+  it('wraps script/style references between the markers in dependency order', () => {
     const block = buildInjectionBlock();
     expect(block.startsWith(MARKER_BEGIN)).toBe(true);
     expect(block.endsWith(MARKER_END)).toBe(true);
-    for (const asset of ASSET_FILES) {
+    for (const asset of ['three.min.js', 'GLTFLoader.js', 'avatar.css', 'avatar.js']) {
       expect(block).toContain(asset);
     }
+    // THREE global, then the loader that augments it, then the bundle.
+    expect(block.indexOf('three.min.js')).toBeLessThan(block.indexOf('GLTFLoader.js'));
+    expect(block.indexOf('GLTFLoader.js')).toBeLessThan(block.indexOf('avatar.js'));
+  });
+
+  it('copies head.glb but never tags it (it is a runtime fetch)', () => {
+    expect(ASSET_FILES).toContain('head.glb');
+    expect(buildInjectionBlock()).not.toContain('head.glb');
   });
 });
 

@@ -27,7 +27,7 @@ export { SpeechReactor } from './audio/SpeechReactor';
 export type { SpeechReactorOptions } from './audio/SpeechReactor';
 export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';
 export type { VoiceSignals, VoiceHooksHandle } from './integration/voiceHooksAdapter';
-export { safeSetText } from './integration/dom';
+export { safeSetText, prefersReducedMotion } from './integration/dom';
 export { DEFAULT_CONFIG, cloneConfig } from './config/config';
 export type {
   AvatarConfig,
