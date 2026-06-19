@@ -108,11 +108,67 @@ function wireSpeakTest(controller: AvatarController): void {
     onBoundary: () => controller.pulse(),
   });
   speech.attach();
+
+  // Warm the voice list (Chrome populates it asynchronously).
+  window.speechSynthesis?.getVoices();
+
+  // Hold references until each utterance ends so Chrome cannot garbage-collect
+  // one mid-speech (a well-known Chrome bug where speech silently never starts).
+  const alive = new Set<SpeechSynthesisUtterance>();
+  let demoTimer: ReturnType<typeof setInterval> | null = null;
+  const stopDemo = (): void => {
+    if (demoTimer) {
+      clearInterval(demoTimer);
+      demoTimer = null;
+    }
+  };
+
   speakButton.addEventListener('click', () => {
+    const synth = window.speechSynthesis;
+    stopDemo();
+
     const utterance = new SpeechSynthesisUtterance(
       'Online and ready. All systems nominal, sir. How may I assist you today?',
     );
-    window.speechSynthesis.speak(utterance);
+    const voice = synth?.getVoices().find((v) => v.lang.startsWith('en'));
+    if (voice) {
+      utterance.voice = voice;
+    }
+    alive.add(utterance);
+    const release = (): void => {
+      alive.delete(utterance);
+    };
+    utterance.addEventListener('end', release);
+    utterance.addEventListener('error', release);
+
+    let started = false;
+    utterance.addEventListener('start', () => {
+      started = true;
+      stopDemo(); // real speech took over; drop the visual fallback
+    });
+
+    // Chrome reliability: clear any stuck queue and resume before speaking.
+    synth?.cancel();
+    synth?.resume();
+    synth?.speak(utterance);
+
+    // If the browser produced no speech (no voice / blocked / muted engine),
+    // still demonstrate the speaking animation so the button visibly responds.
+    window.setTimeout(() => {
+      if (started) {
+        return;
+      }
+      controller.setState('speaking');
+      let ticks = 0;
+      demoTimer = setInterval(() => {
+        controller.pulse();
+        ticks += 1;
+        if (ticks > 14) {
+          stopDemo();
+          controller.setState('idle');
+        }
+      }, 180);
+    }, 350);
   });
 }
 
