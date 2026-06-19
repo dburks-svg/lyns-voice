@@ -1,4 +1,4 @@
-import { Avatar } from '../avatar/Avatar';
+import { Avatar, type AvatarOptions } from '../avatar/Avatar';
 import { AvatarController, type AvatarState } from '../avatar/AvatarController';
 import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
@@ -38,6 +38,7 @@ interface RecognitionLike extends EventTarget {
   start?: () => void;
 }
 type RecognitionCtor = new () => RecognitionLike;
+type PatchedCtor = RecognitionCtor & { __jarvisPatched?: boolean };
 interface SpeechWindow {
   SpeechRecognition?: RecognitionCtor;
   webkitSpeechRecognition?: RecognitionCtor;
@@ -47,7 +48,11 @@ interface SpeechWindow {
  * Patch the SpeechRecognition constructor so every recogniser created afterwards
  * reports start/end to us (the most reliable Listening signal). Best-effort:
  * recognisers created before this runs are not observed; the mic-button observer
- * below is the fallback. Returns an unpatch function.
+ * below is the fallback.
+ *
+ * Re-entrancy/teardown safe: refuses to double-wrap an already-patched slot, and
+ * the returned unpatch only restores if we still own the slot, so it never
+ * clobbers a patcher installed after us. Returns an unpatch function.
  */
 function patchSpeechRecognition(
   win: SpeechWindow,
@@ -62,17 +67,24 @@ function patchSpeechRecognition(
   if (!key) {
     return () => undefined;
   }
-  const Original = win[key] as RecognitionCtor;
+  const current = win[key] as PatchedCtor;
+  if (current.__jarvisPatched) {
+    return () => undefined;
+  }
+  const Original = current;
   const Patched = function PatchedRecognition(): RecognitionLike {
     const instance = new Original();
     instance.addEventListener('start', onStart);
     instance.addEventListener('end', onEnd);
     return instance;
-  } as unknown as RecognitionCtor;
+  } as unknown as PatchedCtor;
   Patched.prototype = Original.prototype;
+  Patched.__jarvisPatched = true;
   win[key] = Patched;
   return () => {
-    win[key] = Original;
+    if (win[key] === Patched) {
+      win[key] = Original;
+    }
   };
 }
 
@@ -85,12 +97,15 @@ function patchSpeechRecognition(
  * host-signal heuristics are best-effort and may need tuning per mcp-voice-hooks
  * version; the tested core (controller, reactors, deriveState) is version-proof.
  */
-export function attachToVoiceHooks(doc: Document = document): VoiceHooksHandle {
+export function attachToVoiceHooks(
+  doc: Document = document,
+  avatarOptions?: AvatarOptions,
+): VoiceHooksHandle {
   const overlay = doc.createElement('div');
   overlay.id = 'jarvis-avatar-overlay';
   doc.body.appendChild(overlay);
 
-  const avatar = new Avatar();
+  const avatar = new Avatar(avatarOptions);
   avatar.mount(overlay);
 
   const signals: VoiceSignals = { micActive: false, speaking: false, pendingResponse: false };
@@ -135,11 +150,8 @@ export function attachToVoiceHooks(doc: Document = document): VoiceHooksHandle {
     sync();
   };
 
-  const unpatch = patchSpeechRecognition(
-    window as unknown as SpeechWindow,
-    onRecognitionStart,
-    onRecognitionEnd,
-  );
+  const win = (doc.defaultView ?? window) as unknown as SpeechWindow;
+  const unpatch = patchSpeechRecognition(win, onRecognitionStart, onRecognitionEnd);
 
   // Fallback: observe the mic button toggling its active/listening state.
   const micBtn = doc.getElementById('micBtn');
@@ -170,7 +182,7 @@ export function attachToVoiceHooks(doc: Document = document): VoiceHooksHandle {
   };
 }
 
-function isMicButtonActive(button: HTMLElement): boolean {
+export function isMicButtonActive(button: HTMLElement): boolean {
   const cls = button.className.toLowerCase();
   return (
     button.getAttribute('aria-pressed') === 'true' ||

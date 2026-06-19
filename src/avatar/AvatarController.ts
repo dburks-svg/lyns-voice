@@ -11,6 +11,7 @@ export type AvatarState = 'idle' | 'listening' | 'thinking' | 'speaking';
 export interface ControllableAvatar {
   setParams(next: Partial<DeformationParams>): void;
   setGlow(value: number): void;
+  setColors(rim: number, core: number): void;
   idleRotationSpeed: number;
   readonly mesh: {
     rotation: { x: number; y: number; z: number };
@@ -27,6 +28,18 @@ export interface AvatarControllerOptions {
 const IMPULSE_DECAY_SECONDS = 0.32;
 // Thinking pulse rate (radians/sec) for the rapid processing throb.
 const THINKING_PULSE_RATE = 7.5;
+
+// Per-state color palette (rim, core). Idle trends to the spec's "dark
+// navy/slate blue spectrum"; active states brighten to neon cyan/blue.
+const COLORS = {
+  idleRim: 0x3a5f8f,
+  idleCore: 0x0a1530,
+  neonRim: 0x00f0ff,
+  listeningCore: 0x0077ff,
+  thinkingRim: 0x33e0ff,
+  thinkingCore: 0x0088ff,
+  speakingCore: 0x00a0ff,
+} as const;
 
 /**
  * Translates the four behavioural states (AVATAR_SPEC section 4) into live
@@ -101,6 +114,7 @@ export class AvatarController {
   private applyIdle(): void {
     this.avatar.setParams(IDLE_PARAMS);
     this.avatar.setGlow(1.0);
+    this.avatar.setColors(COLORS.idleRim, COLORS.idleCore);
     this.avatar.idleRotationSpeed = 0.15;
     this.avatar.mesh.rotation.x = 0;
     this.avatar.mesh.scale.set(1, 1, 1);
@@ -110,6 +124,7 @@ export class AvatarController {
     const level = this.micLevel;
     this.avatar.setParams({ amplitude: 0.05 + level * 0.5, frequency: 1.4, speed: 0.9 });
     this.avatar.setGlow(1.2 + level * 0.8);
+    this.avatar.setColors(COLORS.neonRim, COLORS.listeningCore);
     this.avatar.idleRotationSpeed = 0.1;
     this.avatar.mesh.rotation.x = 0;
     // Vertical compression conveys live audio feedback (spec: "compresses vertically").
@@ -120,6 +135,7 @@ export class AvatarController {
     const pulse = 0.5 + 0.5 * Math.sin(time * THINKING_PULSE_RATE);
     this.avatar.setParams({ amplitude: 0.1 + pulse * 0.25, frequency: 2.0, speed: 2.5 });
     this.avatar.setGlow(1.3 + pulse * 0.6);
+    this.avatar.setColors(COLORS.thinkingRim, COLORS.thinkingCore);
     this.avatar.idleRotationSpeed = 0.6;
     // Orbital wobble around X for the "circular pattern".
     this.avatar.mesh.rotation.x = Math.sin(time * 1.5) * 0.4;
@@ -131,6 +147,7 @@ export class AvatarController {
     this.avatar.setParams({ amplitude: 0.12 + impulse * 0.6, frequency: 1.7, speed: 1.2 });
     // Intense bright-blue glow that spikes on each word.
     this.avatar.setGlow(1.8 + impulse * 1.2);
+    this.avatar.setColors(COLORS.neonRim, COLORS.speakingCore);
     this.avatar.idleRotationSpeed = 0.2;
     this.avatar.mesh.rotation.x = 0;
     const pop = 1 + impulse * 0.1;

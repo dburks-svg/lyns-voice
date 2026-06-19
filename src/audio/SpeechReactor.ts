@@ -31,6 +31,7 @@ export class SpeechReactor {
   private readonly syntheticIntervalMs: number;
 
   private originalSpeak: SpeakFn | null = null;
+  private patchedSpeak: SpeakFn | null = null;
   private speaking = false;
   private nativeBoundarySeen = false;
   private syntheticTimer: ReturnType<typeof setInterval> | null = null;
@@ -54,7 +55,7 @@ export class SpeechReactor {
     }
     const original: SpeakFn = synthesis.speak.bind(synthesis);
     this.originalSpeak = original;
-    synthesis.speak = (utterance: SpeechSynthesisUtterance): void => {
+    const patched: SpeakFn = (utterance: SpeechSynthesisUtterance): void => {
       try {
         this.bindUtterance(utterance);
       } catch {
@@ -62,15 +63,23 @@ export class SpeechReactor {
       }
       original(utterance);
     };
+    this.patchedSpeak = patched;
+    synthesis.speak = patched;
   }
 
   detach(): void {
     this.stopSynthetic();
-    if (this.originalSpeak && this.synthesis) {
+    if (this.speaking) {
+      // Emit a clean terminal transition so consumers do not latch on "speaking".
+      this.speaking = false;
+      this.onSpeakingEnd?.();
+    }
+    // Only restore if we still own the slot, to avoid clobbering a later patcher.
+    if (this.synthesis && this.patchedSpeak && this.originalSpeak && this.synthesis.speak === this.patchedSpeak) {
       this.synthesis.speak = this.originalSpeak;
     }
     this.originalSpeak = null;
-    this.speaking = false;
+    this.patchedSpeak = null;
   }
 
   private bindUtterance(utterance: SpeechSynthesisUtterance): void {

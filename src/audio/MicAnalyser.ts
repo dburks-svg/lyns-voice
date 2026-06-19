@@ -52,10 +52,14 @@ export class MicAnalyser {
 
   private context: AudioContext | null = null;
   private stream: MediaStream | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
   private buffer: Uint8Array<ArrayBuffer> = new Uint8Array(0);
   private rafId = 0;
   private active = false;
+  // Monotonic token used to cancel an in-flight start() if stop() lands during
+  // the getUserMedia await (prevents re-acquiring/leaking the mic).
+  private startToken = 0;
 
   constructor(options: MicAnalyserOptions) {
     this.onLevel = options.onLevel;
@@ -76,19 +80,29 @@ export class MicAnalyser {
     if (this.active) {
       return true;
     }
+    const token = ++this.startToken;
+    let stream: MediaStream;
     try {
-      this.stream = await this.getUserMedia({ audio: true, video: false });
+      stream = await this.getUserMedia({ audio: true, video: false });
     } catch {
       this.onLevel(0);
       return false;
     }
+    if (token !== this.startToken) {
+      // stop() (or a newer start) landed during the await: release and bail.
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      return false;
+    }
 
+    this.stream = stream;
     this.context = this.audioContextFactory();
-    const source = this.context.createMediaStreamSource(this.stream);
+    this.source = this.context.createMediaStreamSource(this.stream);
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = this.fftSize;
     this.buffer = new Uint8Array(this.analyser.frequencyBinCount);
-    source.connect(this.analyser);
+    this.source.connect(this.analyser);
 
     this.active = true;
     this.loop();
@@ -114,10 +128,15 @@ export class MicAnalyser {
 
   /** Stop analysis and release the microphone. */
   stop(): void {
+    this.startToken += 1; // invalidate any in-flight start()
     this.active = false;
     if (this.rafId !== 0) {
       cancelAnimationFrame(this.rafId);
       this.rafId = 0;
+    }
+    if (this.source) {
+      this.source.disconnect();
+      this.source = null;
     }
     if (this.stream) {
       for (const track of this.stream.getTracks()) {

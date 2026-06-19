@@ -76,4 +76,60 @@ describe('SpeechReactor', () => {
     utterance.dispatchEvent(new Event('start'));
     expect(onSpeakingStart).not.toHaveBeenCalled();
   });
+
+  it('attaching twice wraps speak only once', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const wrapped = synthesis.speak;
+    reactor.attach();
+    expect(synthesis.speak).toBe(wrapped);
+  });
+
+  it('attach is a safe no-op when no synthesis is available', () => {
+    const reactor = new SpeechReactor({ synthesis: undefined });
+    expect(() => reactor.attach()).not.toThrow();
+    expect(reactor.isSpeaking).toBe(false);
+  });
+
+  it('never blocks speech: a throwing binding still calls the original speak', () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const hostile = {
+      addEventListener: () => {
+        throw new Error('boom');
+      },
+    } as unknown as SpeechSynthesisUtterance;
+    expect(() => synthesis.speak(hostile)).not.toThrow();
+    expect(speak).toHaveBeenCalledWith(hostile);
+  });
+
+  it('maps a speech error to a speaking-end transition', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onSpeakingEnd = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingEnd });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+    utterance.dispatchEvent(new Event('error'));
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(false);
+  });
+
+  it('detach while speaking emits a terminal end so consumers do not latch', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onSpeakingEnd = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingEnd });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+    expect(reactor.isSpeaking).toBe(true);
+    reactor.detach();
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(false);
+  });
 });

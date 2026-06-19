@@ -71,4 +71,52 @@ describe('MicAnalyser', () => {
     expect(mic.isActive).toBe(false);
     expect(levels).toContain(0);
   });
+
+  it('start() is idempotent while active (does not re-request the mic)', async () => {
+    const mocks = makeMocks(64);
+    const mic = new MicAnalyser({
+      onLevel: () => undefined,
+      getUserMedia: mocks.getUserMedia,
+      audioContextFactory: mocks.audioContextFactory,
+    });
+    await mic.start();
+    await mic.start();
+    expect(mocks.getUserMedia).toHaveBeenCalledTimes(1);
+    mic.stop();
+  });
+
+  it('sample() returns 0 before start and after stop', async () => {
+    const mocks = makeMocks(200);
+    const mic = new MicAnalyser({
+      onLevel: () => undefined,
+      getUserMedia: mocks.getUserMedia,
+      audioContextFactory: mocks.audioContextFactory,
+    });
+    expect(mic.sample()).toBe(0);
+    await mic.start();
+    mic.stop();
+    expect(mic.sample()).toBe(0);
+  });
+
+  it('releases a late stream when stop() lands during start() (no mic leak)', async () => {
+    let resolveStream!: (stream: MediaStream) => void;
+    const track = { stop: vi.fn() };
+    const lateStream = { getTracks: () => [track] } as unknown as MediaStream;
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          resolveStream = resolve;
+        }),
+    );
+    const mic = new MicAnalyser({ onLevel: () => undefined, getUserMedia });
+
+    const startPromise = mic.start();
+    mic.stop(); // lands during the getUserMedia await
+    resolveStream(lateStream);
+    const ok = await startPromise;
+
+    expect(ok).toBe(false);
+    expect(mic.isActive).toBe(false);
+    expect(track.stop).toHaveBeenCalledTimes(1);
+  });
 });

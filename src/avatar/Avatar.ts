@@ -131,6 +131,12 @@ export class Avatar {
     this.material.uniforms.uGlow.value = value;
   }
 
+  /** Set the rim and core colors (state-driven tint; hex numbers). */
+  setColors(rim: number, core: number): void {
+    (this.material.uniforms.uColorA.value as THREE.Color).set(rim);
+    (this.material.uniforms.uColorB.value as THREE.Color).set(core);
+  }
+
   /**
    * Displace every vertex along its rest normal by the noise field at `time`.
    * With `params.amplitude === 0` the mesh returns to its exact rest shape.

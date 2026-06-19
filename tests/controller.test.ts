@@ -5,11 +5,16 @@ import type { DeformationParams } from '../src/avatar/deformation';
 function fakeAvatar() {
   const params: DeformationParams = { amplitude: -1, frequency: -1, speed: -1 };
   const scale = { x: 1, y: 1, z: 1 };
+  const colors = { rim: -1, core: -1 };
   const state = { glow: -1 };
   const avatar: ControllableAvatar = {
     setParams: (next) => Object.assign(params, next),
     setGlow: (value) => {
       state.glow = value;
+    },
+    setColors: (rim, core) => {
+      colors.rim = rim;
+      colors.core = core;
     },
     idleRotationSpeed: 0,
     mesh: {
@@ -23,7 +28,7 @@ function fakeAvatar() {
       },
     },
   };
-  return { avatar, params, scale, state };
+  return { avatar, params, scale, colors, state };
 }
 
 describe('AvatarController', () => {
@@ -113,5 +118,40 @@ describe('AvatarController', () => {
     controller.setMicLevel(Number.NaN); // treated as 0
     controller.tick(0.016);
     expect(scale.y).toBeCloseTo(1);
+  });
+
+  it('idle shifts to a dark navy/slate spectrum; active states brighten (spec section 4)', () => {
+    const { avatar, colors } = fakeAvatar();
+    const controller = new AvatarController({ avatar });
+
+    controller.tick(0); // idle
+    const idleCore = colors.core;
+
+    controller.setState('listening');
+    controller.tick(0.016);
+    const listeningCore = colors.core;
+
+    const luminance = (hex: number): number =>
+      0.299 * ((hex >> 16) & 255) + 0.587 * ((hex >> 8) & 255) + 0.114 * (hex & 255);
+    // Idle core is visibly darker (navy/slate) than the neon listening core.
+    expect(luminance(idleCore)).toBeLessThan(luminance(listeningCore));
+    expect(idleCore).toBe(0x0a1530);
+    expect(listeningCore).toBe(0x0077ff);
+  });
+
+  it('speaking impulse saturates at 1 and ignores NaN pulses', () => {
+    const { avatar, params } = fakeAvatar();
+    const controller = new AvatarController({ avatar });
+    controller.setState('speaking');
+
+    controller.pulse(1);
+    controller.pulse(1); // accumulation clamped to 1
+    controller.tick(0);
+    const saturated = params.amplitude;
+    expect(saturated).toBeCloseTo(0.12 + 0.6); // single-spike maximum, not doubled
+
+    controller.pulse(Number.NaN); // ignored
+    controller.tick(0);
+    expect(params.amplitude).toBeLessThanOrEqual(saturated);
   });
 });

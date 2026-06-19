@@ -25,12 +25,15 @@ Do not edit `AVATAR_SPEC.md`.
 - **No em dashes or en dashes** in any generated content (use hyphens, commas,
   colons, parentheses).
 
-## Phase status
+## Phase status: COMPLETE (all four phases built, audited, tested)
 
 - [x] Phase 1 - Scaffold, vendored Three.js, idempotent injector, demo harness, this file.
-- [ ] Phase 2 - Neon-blue pulsing icosahedron with simplex-noise idle breathing.
-- [ ] Phase 3 - Four-state controller, mic-driven listening, boundary-driven speaking, voice-hooks adapter.
-- [ ] Phase 4 - Dark neon UI, responsive floating panel, final security+completeness audit, e2e smoke, open browser.
+- [x] Phase 2 - Neon-blue pulsing icosahedron with simplex-noise idle breathing.
+- [x] Phase 3 - Four-state controller, mic-driven listening, boundary-driven speaking, voice-hooks adapter.
+- [x] Phase 4 - Dark neon UI, responsive floating panel, per-state colors, final multi-agent
+      security+completeness audit (findings fixed), Playwright e2e smoke, open browser.
+
+Gate: 65 unit tests + 1 e2e smoke pass; lint + typecheck clean; npm audit clean.
 
 ## Commands
 
@@ -95,14 +98,27 @@ runtime.
 ## Security rules
 
 - Vendored dependencies only; no runtime CDN/remote fetch from avatar code; no `eval`.
-- Injector: validate the path (reject null bytes / non-`index.html`), sentinel-verify
-  the target is really an mcp-voice-hooks page, back up before writing, idempotent,
-  reversible.
+- Injector: validate the path (reject null bytes / non-`index.html` / symlinks),
+  sentinel-verify the target is really an mcp-voice-hooks page, back up before writing,
+  idempotent, reversible. Copied assets back up any pre-existing host file of the same
+  name and are removed/restored on `--revert` (full reversibility).
 - `getUserMedia` requested on a user gesture, least privilege, tracks stopped when
-  not listening; graceful fallback if permission is denied.
+  not listening; `start()` is cancellation-safe so a `stop()` during the permission
+  prompt cannot leak the mic; graceful fallback if permission is denied.
+- Speech-synthesis and SpeechRecognition patches restore only if we still own the
+  slot (never clobber a patcher installed after us) and refuse to double-wrap.
 - Any transcript/user text rendered to the DOM uses `textContent`, never `innerHTML`.
 - Dev server binds to `127.0.0.1` only.
 - Keep the toolchain free of known vulnerabilities (`npm audit` clean).
+
+## Audit (Phase 4)
+
+A four-lens adversarial audit (security / spec-completeness / correctness / coverage)
+ran before the final commit. All HIGH/MEDIUM findings were fixed: build now emits
+`dist/avatar.css` (host overlay was unstyled); the `MicAnalyser` start/stop race is
+closed; the injector rejects symlinks and backs up/restores copied assets; the
+speech-recognition/synthesis patches restore conditionally; and idle now shifts to the
+spec's dark navy/slate spectrum. Regression tests were added for each fix.
 
 ## Wiring into mcp-voice-hooks (separately-approved step)
 

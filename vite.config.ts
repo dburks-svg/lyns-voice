@@ -16,7 +16,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: false,
-    open: '/demo/',
+    // Auto-open is intentionally off: the e2e runner starts this server
+    // headlessly, and the demo browser is opened explicitly when desired.
+    open: false,
   },
   build: {
     outDir: 'dist-demo',

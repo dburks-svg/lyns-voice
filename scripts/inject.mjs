@@ -15,7 +15,7 @@
  * (unless --force), backs up the pristine original once, and is idempotent.
  */
 
-import { readFile, writeFile, copyFile, stat, access } from 'node:fs/promises';
+import { readFile, writeFile, copyFile, stat, lstat, access, rm } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -42,7 +42,7 @@ const ASSET_SOURCES = {
 /**
  * @param {string[]} argv
  */
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const args = { path: undefined, revert: false, force: false, dryRun: false, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -70,6 +70,77 @@ async function exists(p) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * @param {string} p
+ * @returns {Promise<boolean>}
+ */
+async function isSymlink(p) {
+  try {
+    const info = await lstat(p);
+    return info.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reject symlinked targets so injection cannot be redirected to clobber an
+ * arbitrary file via a symlink named index.html.
+ * @param {string} p
+ */
+async function assertNotSymlink(p) {
+  if (await isSymlink(p)) {
+    throw new Error(`Refusing to operate on a symlink: ${p}`);
+  }
+}
+
+/**
+ * Copy avatar assets next to the page, backing up any pre-existing host file of
+ * the same name exactly once so injection stays reversible. Symlinked
+ * destinations are skipped (never followed).
+ * @param {string} publicDir
+ */
+async function copyAssets(publicDir) {
+  for (const name of ASSET_FILES) {
+    const src = ASSET_SOURCES[name];
+    const dest = path.join(publicDir, name);
+    if (!src || !(await exists(src))) {
+      console.warn(`[avatar] asset not found, skipped: ${name} (build it with "npm run build:lib")`);
+      continue;
+    }
+    if (await isSymlink(dest)) {
+      console.warn(`[avatar] destination is a symlink, skipped: ${name}`);
+      continue;
+    }
+    const backup = dest + BACKUP_SUFFIX;
+    if ((await exists(dest)) && !(await exists(backup))) {
+      await copyFile(dest, backup);
+    }
+    await copyFile(src, dest);
+  }
+}
+
+/**
+ * Reverse copyAssets: restore any backed-up host asset, otherwise remove the
+ * avatar-owned file we added.
+ * @param {string} publicDir
+ */
+async function restoreAssets(publicDir) {
+  for (const name of ASSET_FILES) {
+    const dest = path.join(publicDir, name);
+    const backup = dest + BACKUP_SUFFIX;
+    if (await isSymlink(dest)) {
+      continue;
+    }
+    if (await exists(backup)) {
+      await copyFile(backup, dest);
+      await rm(backup, { force: true });
+    } else if (await exists(dest)) {
+      await rm(dest, { force: true });
+    }
   }
 }
 
@@ -138,6 +209,7 @@ async function main() {
   }
 
   const safeTarget = assertSafeTargetPath(target);
+  await assertNotSymlink(safeTarget);
   const publicDir = path.dirname(safeTarget);
   const backupPath = safeTarget + BACKUP_SUFFIX;
   const original = await readFile(safeTarget, 'utf8');
@@ -149,6 +221,8 @@ async function main() {
       return 0;
     }
     await writeFile(safeTarget, restored, 'utf8');
+    await rm(backupPath, { force: true });
+    await restoreAssets(publicDir);
     console.log('[avatar] Reverted', safeTarget);
     return 0;
   }
@@ -168,15 +242,7 @@ async function main() {
     await writeFile(backupPath, original, 'utf8');
   }
   await writeFile(safeTarget, next, 'utf8');
-
-  for (const name of ASSET_FILES) {
-    const src = ASSET_SOURCES[name];
-    if (src && (await exists(src))) {
-      await copyFile(src, path.join(publicDir, name));
-    } else {
-      console.warn(`[avatar] asset not found, skipped: ${name} (build it with "npm run build:lib")`);
-    }
-  }
+  await copyAssets(publicDir);
   console.log('[avatar] Injected avatar into', safeTarget);
   return 0;
 }
