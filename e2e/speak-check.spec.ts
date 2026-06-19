@@ -37,6 +37,39 @@ test('speak drives the speaking state when the engine fires events', async ({ pa
   await expect(page.locator('#status')).toContainText('idle', { timeout: 2000 });
 });
 
+test('rapid presses debounce into a single speak (no same-tick cancel storm)', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __speaks: number }).__speaks = 0;
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        speak(u: SpeechSynthesisUtterance) {
+          (window as unknown as { __speaks: number }).__speaks += 1;
+          setTimeout(() => u.dispatchEvent(new Event('start')), 10);
+          setTimeout(() => u.dispatchEvent(new Event('end')), 900); // long enough to observe
+        },
+        cancel() {},
+        pause() {},
+        resume() {},
+        getVoices: () => [],
+      },
+    });
+  });
+
+  await page.goto('/demo/');
+  await page.waitForTimeout(1200);
+  // Click synchronously many times in one tick (the debounce window).
+  await page.evaluate(() => {
+    const b = document.getElementById('speak-test');
+    for (let i = 0; i < 6; i += 1) {
+      b?.click();
+    }
+  });
+  await expect(page.locator('#status')).toContainText('speaking', { timeout: 2000 });
+  const speaks = await page.evaluate(() => (window as unknown as { __speaks: number }).__speaks);
+  expect(speaks).toBe(1); // six presses coalesced into one utterance
+});
+
 test('speak still animates via the visual fallback when the engine is silent', async ({ page }) => {
   await page.addInitScript(() => {
     // A speechSynthesis that accepts speak() but never fires any event.

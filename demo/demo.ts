@@ -109,61 +109,84 @@ function wireSpeakTest(controller: AvatarController): void {
   });
   speech.attach();
 
-  // Warm the voice list (Chrome populates it asynchronously).
-  window.speechSynthesis?.getVoices();
+  const synth = window.speechSynthesis;
+  const LINE = 'Online and ready. All systems nominal, sir. How may I assist you today?';
 
-  // Hold references until each utterance ends so Chrome cannot garbage-collect
-  // one mid-speech (a well-known Chrome bug where speech silently never starts).
+  // Voices load asynchronously; cache and refresh on 'voiceschanged'. An empty
+  // list is fine (the engine default speaks). Prefer a LOCAL English voice -
+  // network voices often fail silently.
+  let voices: SpeechSynthesisVoice[] = synth?.getVoices() ?? [];
+  const refreshVoices = (): void => {
+    voices = synth?.getVoices() ?? [];
+  };
+  refreshVoices();
+  synth?.addEventListener?.('voiceschanged', refreshVoices);
+  const pickVoice = (): SpeechSynthesisVoice | undefined =>
+    voices.find((v) => v.localService && v.lang.startsWith('en')) ??
+    voices.find((v) => v.lang.startsWith('en'));
+
+  // Hold a strong reference to each utterance until it ends so Chrome cannot
+  // garbage-collect it mid-speech (a known bug where speech silently never starts).
   const alive = new Set<SpeechSynthesisUtterance>();
+  let speakTimer: ReturnType<typeof setTimeout> | null = null;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
   let demoTimer: ReturnType<typeof setInterval> | null = null;
   const stopDemo = (): void => {
-    if (demoTimer) {
+    if (demoTimer !== null) {
       clearInterval(demoTimer);
       demoTimer = null;
     }
   };
+  const clearWatchdog = (): void => {
+    if (watchdog !== null) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
 
-  speakButton.addEventListener('click', () => {
-    const synth = window.speechSynthesis;
+  const runSpeak = (): void => {
+    speakTimer = null;
+    if (!synth) {
+      return;
+    }
     stopDemo();
+    if (synth.paused) {
+      synth.resume(); // unstick a paused engine
+    }
 
-    const utterance = new SpeechSynthesisUtterance(
-      'Online and ready. All systems nominal, sir. How may I assist you today?',
-    );
-    // Prefer a LOCAL (offline) English voice; network voices often fail silently.
-    const voices = synth?.getVoices() ?? [];
-    const voice =
-      voices.find((v) => v.localService && v.lang.startsWith('en')) ??
-      voices.find((v) => v.lang.startsWith('en'));
+    const utterance = new SpeechSynthesisUtterance(LINE);
+    const voice = pickVoice();
     if (voice) {
       utterance.voice = voice;
     }
     alive.add(utterance);
+    let started = false;
     const release = (): void => {
       alive.delete(utterance);
     };
-    utterance.addEventListener('end', release);
-    utterance.addEventListener('error', release);
-
-    let started = false;
     utterance.addEventListener('start', () => {
       started = true;
+      clearWatchdog();
       stopDemo(); // real speech took over; drop the visual fallback
     });
+    utterance.addEventListener('end', release);
+    utterance.addEventListener('error', () => {
+      clearWatchdog();
+      release();
+    });
 
-    // Chrome reliability: clear any stuck queue and resume before speaking.
-    synth?.cancel();
-    synth?.resume();
-    synth?.speak(utterance);
+    synth.speak(utterance);
 
-    // If the browser produced no speech (no voice / blocked / muted engine),
-    // still demonstrate the speaking animation so the button visibly responds.
-    window.setTimeout(() => {
+    // Watchdog: if no real speech starts (no voice / muted engine), still animate
+    // so the button visibly responds.
+    clearWatchdog();
+    watchdog = setTimeout(() => {
       if (started) {
         return;
       }
       controller.setState('speaking');
       let ticks = 0;
+      stopDemo();
       demoTimer = setInterval(() => {
         controller.pulse();
         ticks += 1;
@@ -173,6 +196,23 @@ function wireSpeakTest(controller: AvatarController): void {
         }
       }, 180);
     }, 350);
+  };
+
+  speakButton.addEventListener('click', () => {
+    if (!synth) {
+      return;
+    }
+    // Debounce rapid presses into one scheduled speak, and DECOUPLE cancel from
+    // speak: only cancel when the engine is busy, then speak on a short macrotask
+    // so the cancel teardown settles first (fixes the ~1-in-10 same-tick race).
+    if (speakTimer !== null) {
+      clearTimeout(speakTimer);
+    }
+    const busy = synth.speaking || synth.pending;
+    if (busy) {
+      synth.cancel();
+    }
+    speakTimer = setTimeout(runSpeak, busy ? 120 : 0);
   });
 }
 
