@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jarvis Avatar — Demo</title>
+    <link rel="stylesheet" href="./avatar.css" />
+  </head>
+  <body>
+    <main id="avatar-root">
+      <!-- Phase 2 mounts the Three.js canvas here. -->
+
+      <!-- Phase 3/4 wire this control panel to drive the four avatar states. -->
+      <section id="controls" hidden>
+        <button type="button" data-state="idle">Idle</button>
+        <button type="button" data-state="listening">Listening</button>
+        <button type="button" data-state="thinking">Thinking</button>
+        <button type="button" data-state="speaking">Speaking</button>
+        <button type="button" id="mic-test">Test mic</button>
+        <button type="button" id="speak-test">Test speak</button>
+      </section>
+
+      <p id="status">Loading…</p>
+    </main>
+
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

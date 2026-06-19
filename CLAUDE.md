@@ -1,0 +1,120 @@
+# CLAUDE.md - Jarvis Avatar Project Guide
+
+Real-time 3D neon-blue "Jarvis" avatar overlay (Three.js) for the `mcp-voice-hooks`
+browser UI. The avatar pulses while idle, reacts to the microphone while listening,
+spins/pulses while Claude is thinking, and deforms to speech cadence while Claude
+replies. Everything runs 100% locally (browser-native Web Speech API, zero extra
+API cost).
+
+## ALWAYS: stay aligned with the spec
+
+`AVATAR_SPEC.md` (repo root) is the source of truth. **On every session start, and
+again after any context compaction/summary, re-read `AVATAR_SPEC.md` before
+continuing** so the work never drifts from the original architecture, the four
+phases, and the four behavioral states (Idle / Listening / Thinking / Speaking).
+Do not edit `AVATAR_SPEC.md`.
+
+## Working agreement (how this project is built)
+
+- **Answer open questions as the Senior Engineer.** The owner has delegated
+  implementation decisions. Make the call, record the rationale here, and proceed.
+- **Clean code, security first, tests baked in as you build** (not bolted on later).
+- **Phased delivery with commits between phases.** Build a phase fully (code +
+  tests green), commit it, then begin the next phase. Four phases total.
+- **Final phase opens the local browser** so the owner can test the avatar live.
+- **No em dashes or en dashes** in any generated content (use hyphens, commas,
+  colons, parentheses).
+
+## Phase status
+
+- [x] Phase 1 - Scaffold, vendored Three.js, idempotent injector, demo harness, this file.
+- [ ] Phase 2 - Neon-blue pulsing icosahedron with simplex-noise idle breathing.
+- [ ] Phase 3 - Four-state controller, mic-driven listening, boundary-driven speaking, voice-hooks adapter.
+- [ ] Phase 4 - Dark neon UI, responsive floating panel, final security+completeness audit, e2e smoke, open browser.
+
+## Commands
+
+| Task | Command |
+| --- | --- |
+| Install deps | `npm install` |
+| Vendor Three.js into `vendor/` | `npm run vendor:three` |
+| Dev server + demo (opens `/demo/`) | `npm run dev` |
+| Build injectable bundle (`dist/avatar.js`) | `npm run build:lib` |
+| Type-check | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Unit tests | `npm test` |
+| E2E smoke (installs Chromium first) | `npm run e2e:install` then `npm run test:e2e` |
+| Inject into mcp-voice-hooks | `npm run inject -- --path <index.html>` |
+| Revert injection | `npm run inject:revert -- --path <index.html>` |
+
+Pre-ship gate (run before each commit): `npm run lint && npm run typecheck && npm test`.
+
+## Architecture
+
+```
+src/
+  index.ts                  Public API barrel -> global `JarvisAvatar` (IIFE) + ESM for the demo
+  avatar/Avatar.ts          Renderer/scene/camera/mesh/loop/resize/dispose (Phase 2)
+  avatar/noise.ts           Simplex noise, pure + tested (Phase 2)
+  avatar/deformation.ts     Vertex displacement math, pure + tested (Phase 2)
+  avatar/shaders.ts         GLSL neon wireframe + fresnel glow (Phase 2)
+  avatar/AvatarController.ts  idle|listening|thinking|speaking state machine (Phase 3)
+  audio/MicAnalyser.ts      getUserMedia -> AnalyserNode -> amplitude, Listening (Phase 3)
+  audio/SpeechReactor.ts    onboundary impulses + envelope, Speaking (Phase 3)
+  integration/voiceHooksAdapter.ts  Observes mcp-voice-hooks signals -> controller (Phase 3)
+demo/                       Standalone four-state harness (primary dev/test/demo surface)
+scripts/inject.mjs          Idempotent, reversible injector CLI
+scripts/injector-core.mjs   Pure string transforms for the injector (unit-tested)
+vendor/three.min.js         Vendored Three.js r128 UMD (global THREE), committed
+```
+
+**Build model:** TypeScript source. The demo imports `src` directly through Vite
+for fast iteration. The injectable artifact is a global IIFE (`dist/avatar.js`)
+built by `vite.lib.config.ts` with `three` external and bound to the global
+`THREE` from `vendor/three.min.js`. Same Three.js version (r128) at dev, test, and
+runtime.
+
+## Key decisions and deviations from the literal spec (with rationale)
+
+1. **Repo-owned source + idempotent injector** instead of hand-editing installed
+   package files. Editing `node_modules` is brittle (wiped on update) and
+   untestable. The injector backs up the original, inserts marked `<script>` tags,
+   is idempotent (safe to re-run), and reversible (`--revert`).
+2. **Vendored Three.js (no runtime CDN).** Security-first and offline-capable;
+   matches the "100% local" requirement. The spec's CDN tag is a documented
+   fallback only.
+3. **Listening uses a real mic `AnalyserNode`; Speaking uses `onboundary`
+   word-impulses + a synthetic envelope.** Browser `speechSynthesis` output cannot
+   be routed into an `AnalyserNode`/`MediaStream`, so the spec's "AudioContext
+   capture of TTS output" is infeasible for Web Speech synthesis. Mic analysis IS
+   feasible and drives Listening; word-boundary events drive Speaking, with a
+   time-based envelope fallback for voices that do not emit boundary events.
+4. **No unattended install of `mcp-voice-hooks` and no edits to the user's MCP
+   config.** That is a separately-approved step (see below).
+
+## Security rules
+
+- Vendored dependencies only; no runtime CDN/remote fetch from avatar code; no `eval`.
+- Injector: validate the path (reject null bytes / non-`index.html`), sentinel-verify
+  the target is really an mcp-voice-hooks page, back up before writing, idempotent,
+  reversible.
+- `getUserMedia` requested on a user gesture, least privilege, tracks stopped when
+  not listening; graceful fallback if permission is denied.
+- Any transcript/user text rendered to the DOM uses `textContent`, never `innerHTML`.
+- Dev server binds to `127.0.0.1` only.
+- Keep the toolchain free of known vulnerabilities (`npm audit` clean).
+
+## Wiring into mcp-voice-hooks (separately-approved step)
+
+`mcp-voice-hooks` is not installed in this environment. To wire the avatar into the
+live voice UI:
+
+1. Install/configure `mcp-voice-hooks` for Claude Code (its server serves
+   `public/index.html` on `http://localhost:5111`).
+2. `npm run build:lib` to produce `dist/avatar.js`.
+3. `npm run inject -- --path "<...>/mcp-voice-hooks/public/index.html"`
+   (or set `MCP_VOICE_HOOKS_DIR` and run `npm run inject`).
+4. Open `http://localhost:5111`. To undo: `npm run inject:revert -- --path <same>`.
+
+Until then, `npm run dev` serves the standalone demo, which exercises all four
+states with real mic + real speech synthesis.

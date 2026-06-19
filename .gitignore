@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-demo/
+
+# Test / coverage / e2e artifacts
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Injector backups produced in a host package (never committed here)
+*.avatar-backup
