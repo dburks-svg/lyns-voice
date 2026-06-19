@@ -24,9 +24,9 @@ function mockRendererFactory() {
 }
 
 describe('Avatar', () => {
-  it('builds a wireframe icosahedron with neon uniforms and idle params', () => {
+  it('orb skin builds a wireframe icosahedron with neon uniforms and idle params', () => {
     const { factory } = mockRendererFactory();
-    const avatar = new Avatar({ rendererFactory: factory });
+    const avatar = new Avatar({ rendererFactory: factory, skin: 'orb' });
 
     expect(avatar.geometry).toBeInstanceOf(THREE.IcosahedronGeometry);
     expect(avatar.material.wireframe).toBe(true);
@@ -34,6 +34,17 @@ describe('Avatar', () => {
     expect(avatar.material.transparent).toBe(true);
     expect(avatar.scene.children).toContain(avatar.mesh);
     expect(avatar.params).toEqual(IDLE_PARAMS);
+  });
+
+  it('head skin builds a solid, opaque, depth-writing material with the same uniforms', () => {
+    const { factory } = mockRendererFactory();
+    const avatar = new Avatar({ rendererFactory: factory, skin: 'head' });
+
+    expect(avatar.material.wireframe).toBe(false);
+    expect(avatar.material.transparent).toBe(false);
+    expect(avatar.material.depthWrite).toBe(true);
+    expect(avatar.material.uniforms.uGlow.value).toBe(1.0);
+    expect(avatar.material.uniforms.uColorA.value).toBeInstanceOf(THREE.Color);
   });
 
   it('mounts its canvas into the container', () => {

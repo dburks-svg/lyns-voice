@@ -1,11 +1,15 @@
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   Avatar,
   AvatarController,
+  DEFAULT_CONFIG,
   MicAnalyser,
   SpeechReactor,
   VERSION,
   type AvatarState,
+  type Skin,
 } from '../src/index';
+import headUrl from '../vendor/head.glb?url';
 
 /**
  * Standalone demo bootstrap (Phase 3).
@@ -22,21 +26,34 @@ function bootstrap(): void {
     return;
   }
 
-  const avatar = new Avatar();
+  const avatar = new Avatar({
+    skin: DEFAULT_CONFIG.skin,
+    headUrl,
+    gltfLoaderFactory: () => new GLTFLoader(),
+  });
   avatar.mount(root);
 
   const setStatus = (text: string): void => {
     if (status) {
-      status.textContent = `Jarvis Avatar v${VERSION} - ${text}`;
+      status.textContent = `Jarvis Avatar v${VERSION} - ${avatar.skin} - ${text}`;
     }
   };
 
   const controller = new AvatarController({ avatar, onStateChange: setStatus });
   avatar.beforeRender = (time) => controller.tick(time);
   avatar.start();
-  setStatus('idle');
+  setStatus(controller.current);
 
   window.addEventListener('resize', () => avatar.resize(root.clientWidth, root.clientHeight));
+
+  const skinButton = document.getElementById('skin-toggle');
+  skinButton?.addEventListener('click', () => {
+    const next: Skin = avatar.skin === 'head' ? 'orb' : 'head';
+    void avatar.setSkin(next).then(() => {
+      avatar.resize(root.clientWidth, root.clientHeight);
+      setStatus(controller.current);
+    });
+  });
 
   for (const button of controls?.querySelectorAll<HTMLButtonElement>('button[data-state]') ?? []) {
     button.addEventListener('click', () => {

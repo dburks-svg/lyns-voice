@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DEFAULT_CONFIG, type Skin } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
 import { loadHeadGeometry, type GLTFLoaderFactory } from './gltf';
-import { AVATAR_FRAGMENT_SHADER, AVATAR_VERTEX_SHADER } from './shaders';
+import { AVATAR_FRAGMENT_SHADER, AVATAR_VERTEX_SHADER, HEAD_FRAGMENT_SHADER } from './shaders';
 
 export type RendererFactory = (canvas: HTMLCanvasElement) => THREE.WebGLRenderer;
 
@@ -44,6 +44,13 @@ const DEFAULTS = {
   rotationSpeed: DEFAULT_CONFIG.rotation.idle,
 };
 
+/** Head meshes breathe at a fraction of the orb amplitude so they pulse, not melt. */
+const HEAD_AMPLITUDE_SCALE = 0.3;
+
+function defaultAmplitudeScale(skin: Skin): number {
+  return skin === 'head' ? HEAD_AMPLITUDE_SCALE : DEFAULT_CONFIG.amplitudeScale;
+}
+
 function defaultRendererFactory(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0x000000, 0);
@@ -62,8 +69,11 @@ export class Avatar {
   readonly renderer: THREE.WebGLRenderer;
   /** Widened to BufferGeometry so the head mesh can replace the orb at runtime. */
   geometry: THREE.BufferGeometry;
-  readonly material: THREE.ShaderMaterial;
+  /** Rebuilt on skin change: orb is wireframe+additive, head is solid+fresnel. */
+  material: THREE.ShaderMaterial;
   readonly mesh: THREE.Mesh;
+  /** The currently rendered skin ('orb' wireframe or 'head' solid). */
+  skin: Skin;
 
   /** Live deformation parameters; mutated by the state machine in Phase 3. */
   readonly params: DeformationParams = { ...IDLE_PARAMS };
@@ -92,13 +102,22 @@ export class Avatar {
   private readonly clock = new THREE.Clock();
   private rafId = 0;
   private container: HTMLElement | null = null;
+  private readonly radius: number;
+  private readonly detail: number;
+  private readonly colorA: number;
+  private readonly colorB: number;
+  private readonly headUrl: string;
+  private readonly gltfLoaderFactory: GLTFLoaderFactory | undefined;
 
   constructor(options: AvatarOptions = {}) {
-    const radius = options.radius ?? DEFAULTS.radius;
-    const detail = options.detail ?? DEFAULTS.detail;
-    const colorA = options.colorA ?? DEFAULTS.colorA;
-    const colorB = options.colorB ?? DEFAULTS.colorB;
-    this.amplitudeScale = options.amplitudeScale ?? DEFAULT_CONFIG.amplitudeScale;
+    this.radius = options.radius ?? DEFAULTS.radius;
+    this.detail = options.detail ?? DEFAULTS.detail;
+    this.colorA = options.colorA ?? DEFAULTS.colorA;
+    this.colorB = options.colorB ?? DEFAULTS.colorB;
+    this.headUrl = options.headUrl ?? DEFAULT_CONFIG.headUrl;
+    this.gltfLoaderFactory = options.gltfLoaderFactory;
+    this.skin = options.skin ?? DEFAULT_CONFIG.skin;
+    this.amplitudeScale = options.amplitudeScale ?? defaultAmplitudeScale(this.skin);
 
     this.canvas = document.createElement('canvas');
     this.renderer = (options.rendererFactory ?? defaultRendererFactory)(this.canvas);
@@ -108,17 +127,48 @@ export class Avatar {
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
     this.camera.position.z = 4;
 
-    this.geometry = new THREE.IcosahedronGeometry(radius, detail);
+    // The orb geometry is the instant fallback for both skins; a 'head' skin
+    // swaps in the loaded GLB when ready.
+    this.geometry = new THREE.IcosahedronGeometry(this.radius, this.detail);
     this.restPositions = Float32Array.from(this.geometry.attributes.position.array);
     this.restNormals = Float32Array.from(this.geometry.attributes.normal.array);
 
-    this.material = new THREE.ShaderMaterial({
-      uniforms: {
-        uColorA: { value: new THREE.Color(colorA) },
-        uColorB: { value: new THREE.Color(colorB) },
-        uGlow: { value: 1.0 },
-        uOpacity: { value: 0.9 },
-      },
+    this.material = this.buildMaterial(this.skin);
+    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.scene.add(this.mesh);
+
+    // A 'head' skin loads its GLB and atomically adopts it when ready. A load
+    // failure keeps the fallback geometry (graceful), so `ready` never rejects.
+    if (this.skin === 'head' && this.gltfLoaderFactory) {
+      this.ready = this.loadHead().catch((err: unknown) => {
+        console.warn('[avatar] head model failed to load; keeping orb', err);
+      });
+    } else {
+      this.ready = Promise.resolve();
+    }
+  }
+
+  /** Build the ShaderMaterial for a skin (orb: wireframe additive; head: solid). */
+  private buildMaterial(skin: Skin): THREE.ShaderMaterial {
+    const uniforms = {
+      uColorA: { value: new THREE.Color(this.colorA) },
+      uColorB: { value: new THREE.Color(this.colorB) },
+      uGlow: { value: 1.0 },
+      uOpacity: { value: 0.9 },
+    };
+    if (skin === 'head') {
+      return new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: AVATAR_VERTEX_SHADER,
+        fragmentShader: HEAD_FRAGMENT_SHADER,
+        wireframe: false,
+        transparent: false,
+        depthWrite: true,
+        side: THREE.FrontSide,
+      });
+    }
+    return new THREE.ShaderMaterial({
+      uniforms,
       vertexShader: AVATAR_VERTEX_SHADER,
       fragmentShader: AVATAR_FRAGMENT_SHADER,
       wireframe: true,
@@ -126,28 +176,41 @@ export class Avatar {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
+  }
 
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
-    this.scene.add(this.mesh);
-
-    // Fallback-then-swap: the orb renders instantly. If a head skin is requested
-    // and a loader is available, load the GLB and atomically adopt it when ready.
-    // A load failure keeps the orb (graceful), so `ready` never rejects.
-    const skin = options.skin ?? DEFAULT_CONFIG.skin;
-    const headUrl = options.headUrl ?? DEFAULT_CONFIG.headUrl;
-    if (skin === 'head' && options.gltfLoaderFactory) {
-      this.ready = loadHeadGeometry({
-        url: headUrl,
-        loaderFactory: options.gltfLoaderFactory,
-        targetRadius: radius,
-      })
-        .then((geometry) => this.adoptGeometry(geometry))
-        .catch((err: unknown) => {
-          console.warn('[avatar] head model failed to load; keeping orb', err);
-        });
-    } else {
-      this.ready = Promise.resolve();
+  private loadHead(): Promise<void> {
+    if (!this.gltfLoaderFactory) {
+      return Promise.resolve();
     }
+    return loadHeadGeometry({
+      url: this.headUrl,
+      loaderFactory: this.gltfLoaderFactory,
+      targetRadius: this.radius,
+    }).then((geometry) => this.adoptGeometry(geometry));
+  }
+
+  /**
+   * Switch skins at runtime (used by the demo toggle). Rebuilds the material and
+   * swaps geometry: 'orb' rebuilds the icosahedron; 'head' reloads the GLB.
+   * Resolves when the new skin is ready.
+   */
+  setSkin(next: Skin): Promise<void> {
+    if (next === this.skin) {
+      return Promise.resolve();
+    }
+    this.skin = next;
+    const previousMaterial = this.material;
+    this.material = this.buildMaterial(next);
+    this.mesh.material = this.material;
+    previousMaterial.dispose();
+    this.amplitudeScale = defaultAmplitudeScale(next);
+    if (next === 'head') {
+      return this.loadHead().catch((err: unknown) => {
+        console.warn('[avatar] head model failed to load; keeping current geometry', err);
+      });
+    }
+    this.adoptGeometry(new THREE.IcosahedronGeometry(this.radius, this.detail));
+    return Promise.resolve();
   }
 
   /**

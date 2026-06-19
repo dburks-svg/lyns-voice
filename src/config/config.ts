@@ -55,7 +55,7 @@ export interface FeatureFlags {
 }
 
 export interface AvatarConfig {
-  /** Which mesh form to render. Default 'orb' today; flips to 'head' in Phase 4. */
+  /** Which mesh form to render. Default 'head' (the glowing head); 'orb' is the legacy skin. */
   skin: Skin;
   /** Named palette variant. */
   theme: string;
@@ -76,7 +76,7 @@ export interface AvatarConfig {
 }
 
 export const DEFAULT_CONFIG: AvatarConfig = {
-  skin: 'orb',
+  skin: 'head',
   theme: 'jarvis',
   mesh: { radius: 1.2, detail: 3 },
   idle: { amplitude: 0.12, frequency: 1.1, speed: 0.5 },

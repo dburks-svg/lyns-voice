@@ -37,7 +37,7 @@ function failingLoaderFactory() {
 describe('Avatar geometry lifecycle', () => {
   it('orb skin: ready resolves immediately and keeps the icosahedron', async () => {
     const { factory } = mockRendererFactory();
-    const avatar = new Avatar({ rendererFactory: factory });
+    const avatar = new Avatar({ rendererFactory: factory, skin: 'orb' });
     expect(avatar.geometry).toBeInstanceOf(THREE.IcosahedronGeometry);
     await expect(avatar.ready).resolves.toBeUndefined();
     expect(avatar.geometry).toBeInstanceOf(THREE.IcosahedronGeometry);
@@ -79,9 +79,33 @@ describe('Avatar geometry lifecycle', () => {
     }
   });
 
-  it('defaults amplitudeScale to 1', () => {
+  it('uses a skin-appropriate default amplitudeScale (orb 1, head 0.3)', () => {
     const { factory } = mockRendererFactory();
-    expect(new Avatar({ rendererFactory: factory }).amplitudeScale).toBe(1);
+    expect(new Avatar({ rendererFactory: factory, skin: 'orb' }).amplitudeScale).toBe(1);
+    expect(new Avatar({ rendererFactory: factory, skin: 'head' }).amplitudeScale).toBeCloseTo(0.3);
+  });
+
+  it('setSkin switches material and geometry both ways', async () => {
+    const { factory } = mockRendererFactory();
+    const head = new THREE.BoxGeometry(2, 3, 2);
+    const avatar = new Avatar({
+      rendererFactory: factory,
+      skin: 'orb',
+      gltfLoaderFactory: headLoaderFactory(head),
+    });
+    expect(avatar.material.wireframe).toBe(true);
+
+    await avatar.setSkin('head');
+    expect(avatar.skin).toBe('head');
+    expect(avatar.material.wireframe).toBe(false);
+    expect(avatar.geometry).toBe(head);
+    expect(avatar.amplitudeScale).toBeCloseTo(0.3);
+
+    await avatar.setSkin('orb');
+    expect(avatar.skin).toBe('orb');
+    expect(avatar.material.wireframe).toBe(true);
+    expect(avatar.geometry).toBeInstanceOf(THREE.IcosahedronGeometry);
+    expect(avatar.amplitudeScale).toBe(1);
   });
 
   it('head load failure resolves ready and keeps the orb (graceful fallback)', async () => {

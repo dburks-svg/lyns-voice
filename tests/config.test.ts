@@ -22,7 +22,7 @@ function fakeStorage(seed?: Record<string, string>): StorageLike & { data: Map<s
 
 describe('DEFAULT_CONFIG', () => {
   it('reproduces the historical hard-coded values exactly (zero-regression)', () => {
-    expect(DEFAULT_CONFIG.skin).toBe('orb');
+    expect(DEFAULT_CONFIG.skin).toBe('head');
     expect(DEFAULT_CONFIG.mesh).toEqual({ radius: 1.2, detail: 3 });
     expect(DEFAULT_CONFIG.idle).toEqual({ amplitude: 0.12, frequency: 1.1, speed: 0.5 });
     expect(DEFAULT_CONFIG.rotation).toEqual({
@@ -103,7 +103,7 @@ describe('saveConfig', () => {
 
   it('sanitizes a hostile blob (drops API key, rejects bad skin)', () => {
     const merged = sanitizeConfig({ apiKey: 'leak', skin: 'wormhole' });
-    expect(merged.skin).toBe('orb');
+    expect(merged.skin).toBe('head'); // invalid enum -> default
     expect(JSON.stringify(merged)).not.toContain('leak');
   });
 });
