@@ -22,6 +22,7 @@ export type { GLTFLoaderLike, GLTFLoaderFactory, GLTFResultLike, LoadHeadOptions
 export { perlin3 } from './avatar/noise';
 export { MicAnalyser, computeLevel } from './audio/MicAnalyser';
 export type { MicAnalyserOptions, GetUserMedia } from './audio/MicAnalyser';
+export { computeBands } from './audio/bands';
 export { SpeechReactor } from './audio/SpeechReactor';
 export type { SpeechReactorOptions } from './audio/SpeechReactor';
 export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';

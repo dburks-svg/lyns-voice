@@ -50,6 +50,7 @@ export class AvatarController {
 
   private state: AvatarState = 'idle';
   private micLevel = 0;
+  private micBands: Float32Array | null = null;
   private impulse = 0;
   private lastTime: number | null = null;
 
@@ -87,12 +88,20 @@ export class AvatarController {
     if (state !== 'speaking') {
       this.impulse = 0;
     }
+    if (state !== 'listening') {
+      this.micBands = null;
+    }
     this.onStateChange?.(state);
   }
 
   /** Live microphone level in [0, 1], fed by the mic analyser. */
   setMicLevel(level: number): void {
     this.micLevel = clamp01(level);
+  }
+
+  /** Live log-spaced frequency bands in [0, 1], fed by the mic analyser. */
+  setMicBands(bands: Float32Array): void {
+    this.micBands = bands.length > 0 ? bands : null;
   }
 
   /** Register a speech word-boundary impulse (or synthetic envelope tick). */
@@ -135,14 +144,19 @@ export class AvatarController {
 
   private applyListening(): void {
     const { palette, rotation } = this.config;
-    const level = this.micLevel;
-    this.avatar.setParams({ amplitude: 0.05 + level * 0.5, frequency: 1.4, speed: 0.9 });
-    this.emitGlow(1.2 + level * 0.8);
+    const bands = this.micBands;
+    // Bass drives amplitude/compression; treble adds frequency detail + glow
+    // shimmer. With no bands the behaviour is byte-identical to the level-only
+    // version (bass = level, treble = 0).
+    const bass = bands ? bands[0] : this.micLevel;
+    const treble = bands ? bands[bands.length - 1] : 0;
+    this.avatar.setParams({ amplitude: 0.05 + bass * 0.5, frequency: 1.4 + treble * 0.6, speed: 0.9 });
+    this.emitGlow(1.2 + bass * 0.8 + treble * 0.3);
     this.emitColors(palette.neonRim, palette.listeningCore);
     this.avatar.idleRotationSpeed = rotation.listening;
     this.avatar.mesh.rotation.x = 0;
     // Vertical compression conveys live audio feedback (spec: "compresses vertically").
-    this.avatar.mesh.scale.set(1, 1 - level * 0.35, 1);
+    this.avatar.mesh.scale.set(1, 1 - bass * 0.35, 1);
   }
 
   private applyThinking(time: number): void {

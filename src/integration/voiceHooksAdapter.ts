@@ -159,7 +159,10 @@ export function attachToVoiceHooks(
     : null;
   transcript?.start();
 
-  const mic = new MicAnalyser({ onLevel: (level) => controller.setMicLevel(level) });
+  const mic = new MicAnalyser({
+    onLevel: (level) => controller.setMicLevel(level),
+    onBands: (bands) => controller.setMicBands(bands),
+  });
 
   const onRecognitionStart = (): void => {
     signals.micActive = true;

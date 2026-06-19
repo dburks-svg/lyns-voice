@@ -73,7 +73,10 @@ function wireMicTest(controller: AvatarController, setStatus: (text: string) => 
   if (!micButton) {
     return;
   }
-  const mic = new MicAnalyser({ onLevel: (level) => controller.setMicLevel(level) });
+  const mic = new MicAnalyser({
+    onLevel: (level) => controller.setMicLevel(level),
+    onBands: (bands) => controller.setMicBands(bands),
+  });
   let micOn = false;
   micButton.addEventListener('click', () => {
     if (micOn) {
