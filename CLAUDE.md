@@ -35,6 +35,34 @@ Do not edit `AVATAR_SPEC.md`.
 
 Gate: 65 unit tests + 1 e2e smoke pass; lint + typecheck clean; npm audit clean.
 
+## v0.4.0 upgrade: glowing head + mood (COMPLETE)
+
+The avatar evolved from the abstract orb into a solid glowing humanoid HEAD that
+is the voice and face of Claude Code, plus a mood layer. Built in phases (each
+committed with a green gate) on branch `feat/glowing-head-mood-avatar`:
+
+- Central config substrate (`src/config/`): all knobs (skin, palette, mood
+  source, feature flags) with safe localStorage persistence; the API key is
+  never stored, only an `apiKeyPresent` flag.
+- Head pipeline: vendored `GLTFLoader.js` + `vendor/head.glb` (Lee Perry-Smith,
+  CC-BY 3.0, swappable via `headUrl`; see vendor/NOTICE.md). `Avatar` loads the
+  GLB with a fallback-then-swap lifecycle (orb shows instantly, head adopts
+  atomically), a solid fresnel head shader (NormalBlending, depthWrite), a
+  bounded forward-facing sway, and `setSkin()` to switch head/orb at runtime.
+- Mood layer (`src/mood/`): the `<<mood:NAME>>` tag (see "Mood tags" below)
+  tints color/glow on top of the four activity states; neutral is pass-through
+  (zero regression). Verified the head renders correctly (Playwright element
+  screenshot): a glowing blue bust with a bright fresnel rim on a dark stage.
+- Richer reactivity: FFT frequency bands drive a livelier Listening reaction.
+  Bloom is gated behind Spike A (browser-only) and OFF by default; the default
+  glow (fresnel + CSS drop-shadow) already matches the reference (docs/spikes.md).
+- Dominant view: the host overlay is a full-window background layer with the head
+  centered; the adapter resizes the canvas to the window.
+
+Gate: lint + typecheck clean; 118 unit tests + the e2e smoke pass; bundle builds;
+injector round-trip verified (inject copies GLTFLoader.js + head.glb, revert
+restores the original byte-for-byte).
+
 ## Commands
 
 | Task | Command |
@@ -120,7 +148,40 @@ closed; the injector rejects symlinks and backs up/restores copied assets; the
 speech-recognition/synthesis patches restore conditionally; and idle now shifts to the
 spec's dark navy/slate spectrum. Regression tests were added for each fix.
 
+## Mood tags (the avatar's emotion)
+
+The head changes color/glow by mood. The mood comes from a tiny marker the Claude
+session emits at the very start of a spoken reply:
+
+```
+<<mood:NAME>>
+```
+
+`NAME` is one of: `neutral`, `focused`, `happy`, `concerned`, `error`, `curious`.
+The avatar reads the mood and ALWAYS strips every `<<mood:...>>` marker before TTS
+speaks it and before it shows in the transcript, so it is never heard or seen. No
+tag at all keeps the avatar `neutral` (zero regression). The parser is tolerant
+(case-insensitive, anywhere in the text) so a stray tag is silently removed, never
+spoken.
+
+Convention for the voice session: begin spoken replies with `<<mood:NAME>>` and
+nothing else on that marker, choosing the mood that fits (for example
+`<<mood:happy>>` on success, `<<mood:concerned>>`/`<<mood:error>>` on problems,
+`<<mood:focused>>` while working). Parsing is local and free (it runs off the same
+Claude session), with an optional API-key tone-analysis path deferred to a later
+phase. Platform note: the marker is stripped on the BROWSER-voice path (Windows
+default) and in the transcript; the macOS `system` voice path bypasses the browser
+and is not stripped, so use the browser voice when you want the mood feature.
+
 ## Live mcp-voice-hooks integration (DONE)
+
+This machine (user `Designer`): `mcp-voice-hooks` is installed at
+`C:\Users\Designer\AppData\Roaming\npm\node_modules\mcp-voice-hooks`. The v0.4.0
+glowing-head + mood build was re-injected there (`npm run build:lib` then
+`npm run inject`, auto-discovered via `%APPDATA%`); the head GLB, GLTFLoader, and
+mood are live in `public/index.html`. To remove it: `npm run inject:revert`. The
+original notes below are from the earlier `mstar` machine and describe the same
+flow.
 
 `mcp-voice-hooks` v1.0.40 is installed and the avatar overlays its real Voice Mode UI.
 What was wired up (2026-06-19):

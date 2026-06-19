@@ -1,4 +1,6 @@
 import { IDLE_PARAMS } from './Avatar';
+import { DEFAULT_CONFIG, type AvatarConfig } from '../config/config';
+import type { MoodLayer } from '../mood/MoodController';
 import type { DeformationParams } from './deformation';
 
 export type AvatarState = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -22,24 +24,14 @@ export interface ControllableAvatar {
 export interface AvatarControllerOptions {
   avatar: ControllableAvatar;
   onStateChange?: (state: AvatarState) => void;
+  /** Tunable palette/timing/rotation. Defaults to today's exact values. */
+  config?: AvatarConfig;
+  /**
+   * Optional mood layer. Activity drives motion; the mood layer tints color and
+   * adjusts glow. Without it (or with a neutral mood) behaviour is unchanged.
+   */
+  moodProvider?: MoodLayer;
 }
-
-// Time for a speaking impulse to decay back to rest (seconds).
-const IMPULSE_DECAY_SECONDS = 0.32;
-// Thinking pulse rate (radians/sec) for the rapid processing throb.
-const THINKING_PULSE_RATE = 7.5;
-
-// Per-state color palette (rim, core). Idle trends to the spec's "dark
-// navy/slate blue spectrum"; active states brighten to neon cyan/blue.
-const COLORS = {
-  idleRim: 0x3a5f8f,
-  idleCore: 0x0a1530,
-  neonRim: 0x00f0ff,
-  listeningCore: 0x0077ff,
-  thinkingRim: 0x33e0ff,
-  thinkingCore: 0x0088ff,
-  speakingCore: 0x00a0ff,
-} as const;
 
 /**
  * Translates the four behavioural states (AVATAR_SPEC section 4) into live
@@ -53,15 +45,35 @@ const COLORS = {
 export class AvatarController {
   private readonly avatar: ControllableAvatar;
   private readonly onStateChange?: (state: AvatarState) => void;
+  private readonly config: AvatarConfig;
+  private readonly mood: MoodLayer | undefined;
 
   private state: AvatarState = 'idle';
   private micLevel = 0;
+  private micBands: Float32Array | null = null;
   private impulse = 0;
   private lastTime: number | null = null;
 
   constructor(options: AvatarControllerOptions) {
     this.avatar = options.avatar;
     this.onStateChange = options.onStateChange;
+    this.config = options.config ?? DEFAULT_CONFIG;
+    this.mood = options.moodProvider;
+  }
+
+  /** Apply colors through the mood layer (pass-through when no mood is set). */
+  private emitColors(rim: number, core: number): void {
+    if (this.mood) {
+      const [moodRim, moodCore] = this.mood.colors(rim, core);
+      this.avatar.setColors(moodRim, moodCore);
+    } else {
+      this.avatar.setColors(rim, core);
+    }
+  }
+
+  /** Apply glow through the mood layer (pass-through when no mood is set). */
+  private emitGlow(value: number): void {
+    this.avatar.setGlow(this.mood ? this.mood.glow(value) : value);
   }
 
   get current(): AvatarState {
@@ -76,12 +88,20 @@ export class AvatarController {
     if (state !== 'speaking') {
       this.impulse = 0;
     }
+    if (state !== 'listening') {
+      this.micBands = null;
+    }
     this.onStateChange?.(state);
   }
 
   /** Live microphone level in [0, 1], fed by the mic analyser. */
   setMicLevel(level: number): void {
     this.micLevel = clamp01(level);
+  }
+
+  /** Live log-spaced frequency bands in [0, 1], fed by the mic analyser. */
+  setMicBands(bands: Float32Array): void {
+    this.micBands = bands.length > 0 ? bands : null;
   }
 
   /** Register a speech word-boundary impulse (or synthetic envelope tick). */
@@ -93,7 +113,8 @@ export class AvatarController {
   tick(time: number): void {
     const dt = this.lastTime === null ? 0 : Math.max(0, time - this.lastTime);
     this.lastTime = time;
-    this.impulse = Math.max(0, this.impulse - dt / IMPULSE_DECAY_SECONDS);
+    this.impulse = Math.max(0, this.impulse - dt / this.config.timing.impulseDecaySeconds);
+    this.mood?.tick(time);
 
     switch (this.state) {
       case 'idle':
@@ -112,43 +133,52 @@ export class AvatarController {
   }
 
   private applyIdle(): void {
+    const { palette, rotation } = this.config;
     this.avatar.setParams(IDLE_PARAMS);
-    this.avatar.setGlow(1.0);
-    this.avatar.setColors(COLORS.idleRim, COLORS.idleCore);
-    this.avatar.idleRotationSpeed = 0.15;
+    this.emitGlow(1.0);
+    this.emitColors(palette.idleRim, palette.idleCore);
+    this.avatar.idleRotationSpeed = rotation.idle;
     this.avatar.mesh.rotation.x = 0;
     this.avatar.mesh.scale.set(1, 1, 1);
   }
 
   private applyListening(): void {
-    const level = this.micLevel;
-    this.avatar.setParams({ amplitude: 0.05 + level * 0.5, frequency: 1.4, speed: 0.9 });
-    this.avatar.setGlow(1.2 + level * 0.8);
-    this.avatar.setColors(COLORS.neonRim, COLORS.listeningCore);
-    this.avatar.idleRotationSpeed = 0.1;
+    const { palette, rotation } = this.config;
+    const bands = this.micBands;
+    // Bass drives amplitude/compression; treble adds frequency detail + glow
+    // shimmer. With no bands the behaviour is byte-identical to the level-only
+    // version (bass = level, treble = 0).
+    const bass = bands ? bands[0] : this.micLevel;
+    const treble = bands ? bands[bands.length - 1] : 0;
+    this.avatar.setParams({ amplitude: 0.05 + bass * 0.5, frequency: 1.4 + treble * 0.6, speed: 0.9 });
+    this.emitGlow(1.2 + bass * 0.8 + treble * 0.3);
+    this.emitColors(palette.neonRim, palette.listeningCore);
+    this.avatar.idleRotationSpeed = rotation.listening;
     this.avatar.mesh.rotation.x = 0;
     // Vertical compression conveys live audio feedback (spec: "compresses vertically").
-    this.avatar.mesh.scale.set(1, 1 - level * 0.35, 1);
+    this.avatar.mesh.scale.set(1, 1 - bass * 0.35, 1);
   }
 
   private applyThinking(time: number): void {
-    const pulse = 0.5 + 0.5 * Math.sin(time * THINKING_PULSE_RATE);
+    const { palette, rotation, timing } = this.config;
+    const pulse = 0.5 + 0.5 * Math.sin(time * timing.thinkingPulseRate);
     this.avatar.setParams({ amplitude: 0.1 + pulse * 0.25, frequency: 2.0, speed: 2.5 });
-    this.avatar.setGlow(1.3 + pulse * 0.6);
-    this.avatar.setColors(COLORS.thinkingRim, COLORS.thinkingCore);
-    this.avatar.idleRotationSpeed = 0.6;
+    this.emitGlow(1.3 + pulse * 0.6);
+    this.emitColors(palette.thinkingRim, palette.thinkingCore);
+    this.avatar.idleRotationSpeed = rotation.thinking;
     // Orbital wobble around X for the "circular pattern".
     this.avatar.mesh.rotation.x = Math.sin(time * 1.5) * 0.4;
     this.avatar.mesh.scale.set(1, 1, 1);
   }
 
   private applySpeaking(): void {
+    const { palette, rotation } = this.config;
     const impulse = this.impulse;
     this.avatar.setParams({ amplitude: 0.12 + impulse * 0.6, frequency: 1.7, speed: 1.2 });
     // Intense bright-blue glow that spikes on each word.
-    this.avatar.setGlow(1.8 + impulse * 1.2);
-    this.avatar.setColors(COLORS.neonRim, COLORS.speakingCore);
-    this.avatar.idleRotationSpeed = 0.2;
+    this.emitGlow(1.8 + impulse * 1.2);
+    this.emitColors(palette.neonRim, palette.speakingCore);
+    this.avatar.idleRotationSpeed = rotation.speaking;
     this.avatar.mesh.rotation.x = 0;
     const pop = 1 + impulse * 0.1;
     this.avatar.mesh.scale.set(pop, pop, pop);

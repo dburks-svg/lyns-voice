@@ -10,10 +10,16 @@
  * gesture by the caller, and `stop()` stops every track to release the mic.
  */
 
+import { computeBands } from './bands';
+
 export type GetUserMedia = (constraints: MediaStreamConstraints) => Promise<MediaStream>;
 
 export interface MicAnalyserOptions {
   onLevel: (level: number) => void;
+  /** Optional per-frame log-spaced frequency bands (richer Listening reaction). */
+  onBands?: (bands: Float32Array) => void;
+  /** Number of frequency bands to emit (default 4: bass/low-mid/high-mid/treble). */
+  bandCount?: number;
   fftSize?: number;
   /** Injectable for tests; defaults to navigator.mediaDevices.getUserMedia. */
   getUserMedia?: GetUserMedia;
@@ -46,6 +52,8 @@ function defaultAudioContextFactory(): AudioContext {
 
 export class MicAnalyser {
   private readonly onLevel: (level: number) => void;
+  private readonly onBands: ((bands: Float32Array) => void) | undefined;
+  private readonly bandCount: number;
   private readonly fftSize: number;
   private readonly getUserMedia: GetUserMedia;
   private readonly audioContextFactory: () => AudioContext;
@@ -55,6 +63,7 @@ export class MicAnalyser {
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
   private buffer: Uint8Array<ArrayBuffer> = new Uint8Array(0);
+  private bandsBuffer: Float32Array | null = null;
   private rafId = 0;
   private active = false;
   // Monotonic token used to cancel an in-flight start() if stop() lands during
@@ -63,7 +72,9 @@ export class MicAnalyser {
 
   constructor(options: MicAnalyserOptions) {
     this.onLevel = options.onLevel;
-    this.fftSize = options.fftSize ?? 256;
+    this.onBands = options.onBands;
+    this.bandCount = options.bandCount ?? 4;
+    this.fftSize = options.fftSize ?? 512;
     this.getUserMedia = options.getUserMedia ?? defaultGetUserMedia;
     this.audioContextFactory = options.audioContextFactory ?? defaultAudioContextFactory;
   }
@@ -122,7 +133,19 @@ export class MicAnalyser {
     if (!this.active) {
       return;
     }
-    this.onLevel(this.sample());
+    // One getByteFrequencyData per frame feeds both the level and the bands.
+    if (this.analyser) {
+      this.analyser.getByteFrequencyData(this.buffer);
+      this.onLevel(computeLevel(this.buffer));
+      if (this.onBands) {
+        if (!this.bandsBuffer || this.bandsBuffer.length !== this.bandCount) {
+          this.bandsBuffer = new Float32Array(this.bandCount);
+        }
+        this.onBands(computeBands(this.buffer, this.bandCount, this.bandsBuffer));
+      }
+    } else {
+      this.onLevel(0);
+    }
     this.rafId = requestAnimationFrame(() => this.loop());
   }
 

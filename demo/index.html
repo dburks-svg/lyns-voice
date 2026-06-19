@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Jarvis Avatar — Demo</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%2300f0ff'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="./avatar.css" />
   </head>
   <body>
@@ -11,16 +15,17 @@
       <!-- Phase 2 mounts the Three.js canvas here. -->
 
       <!-- Control panel: drive the four states, plus real mic + speech tests. -->
-      <section id="controls">
+      <section id="controls" aria-label="Avatar controls">
         <button type="button" data-state="idle">Idle</button>
         <button type="button" data-state="listening">Listening</button>
         <button type="button" data-state="thinking">Thinking</button>
         <button type="button" data-state="speaking">Speaking</button>
         <button type="button" id="mic-test">Test mic</button>
         <button type="button" id="speak-test">Test speak</button>
+        <button type="button" id="skin-toggle">Toggle skin</button>
       </section>
 
-      <p id="status">Loading…</p>
+      <p id="status" role="status" aria-live="polite">Loading…</p>
     </main>
 
     <script type="module" src="./demo.ts"></script>

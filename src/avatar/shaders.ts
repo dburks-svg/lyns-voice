@@ -36,3 +36,55 @@ export const AVATAR_FRAGMENT_SHADER = /* glsl */ `
     gl_FragColor = vec4(color * uGlow, uOpacity);
   }
 `;
+
+/**
+ * Solid glowing head material (the 'head' skin). Unlike the additive wireframe
+ * orb, this renders an opaque, depth-writing surface so the head has a real
+ * silhouette. The look: an interior fill that brightens toward the camera plus a
+ * bright fresnel rim (uColorA), so the head reads as a glowing form that glows
+ * hottest at its edges. Shares the uColorA/uColorB/uGlow contract with the orb,
+ * so the controller's setColors/setGlow drive both skins identically.
+ */
+export const HEAD_FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+
+  uniform vec3 uColorA; // rim (bright)
+  uniform vec3 uColorB; // core (deep)
+  uniform float uGlow;  // emissive intensity, driven by avatar state
+
+  varying vec3 vNormal;
+  varying vec3 vView;
+
+  void main() {
+    float facing = max(dot(vNormal, vView), 0.0);
+    float fresnel = pow(1.0 - facing, 2.5);
+    // Interior fill leans on the brighter rim color so the head stays visible,
+    // and brightens toward the camera for a volumetric feel.
+    vec3 interior = mix(uColorB, uColorA, 0.5) * (0.45 + 0.4 * facing);
+    vec3 rim = uColorA * fresnel * 1.6;
+    gl_FragColor = vec4((interior + rim) * uGlow, 1.0);
+  }
+`;
+
+/**
+ * Halo shell material for the head: a slightly enlarged BackSide shell rendered
+ * additively so it forms a soft glow ring around the silhouette (a cheap,
+ * transparency-preserving alternative to post-processing bloom). Brightest at the
+ * rim via fresnel; `uColorA`/`uGlow` follow the avatar state/mood.
+ */
+export const HALO_FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+
+  uniform vec3 uColorA; // glow color (rim)
+  uniform float uGlow;  // emissive intensity, driven by avatar state
+
+  varying vec3 vNormal;
+  varying vec3 vView;
+
+  void main() {
+    float fresnel = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 2.5);
+    // Additive blending adds this to the scene, so a dark center contributes
+    // little and the rim glows. Alpha is unused under AdditiveBlending.
+    gl_FragColor = vec4(uColorA * uGlow * fresnel, 1.0);
+  }
+`;

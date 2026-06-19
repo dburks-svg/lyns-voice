@@ -2,7 +2,10 @@ import { Avatar, type AvatarOptions } from '../avatar/Avatar';
 import { AvatarController, type AvatarState } from '../avatar/AvatarController';
 import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
-import { safeSetText } from './dom';
+import { MoodController } from '../mood/MoodController';
+import { parseMoodMarker } from '../mood/moodProtocol';
+import { prefersReducedMotion, safeSetText } from './dom';
+import { TranscriptMoodObserver } from './transcriptMoodObserver';
 
 /**
  * Observable signals about the mcp-voice-hooks conversation, mapped to an avatar
@@ -106,17 +109,36 @@ export function attachToVoiceHooks(
   doc.body.appendChild(overlay);
 
   const avatar = new Avatar(avatarOptions);
+  avatar.reducedMotion = prefersReducedMotion(doc.defaultView);
   avatar.mount(overlay);
 
   const signals: VoiceSignals = { micActive: false, speaking: false, pendingResponse: false };
   const statusLabel = doc.getElementById('jarvis-avatar-status');
 
+  // Mood layer: activity drives motion, mood tints color/glow. Default neutral
+  // (pass-through), so with no mood tag the avatar looks exactly as before.
+  const mood = new MoodController();
+
   const controller = new AvatarController({
     avatar,
     onStateChange: (state) => safeSetText(statusLabel, state),
+    moodProvider: mood,
   });
   avatar.beforeRender = (time) => controller.tick(time);
   avatar.start();
+
+  // The overlay is a full-window dominant layer; keep the canvas sized to it.
+  const view = doc.defaultView ?? window;
+  const resizeToHost = (): void =>
+    avatar.resize(
+      overlay.clientWidth || view.innerWidth || 1,
+      overlay.clientHeight || view.innerHeight || 1,
+    );
+  resizeToHost();
+  view.addEventListener('resize', resizeToHost);
+  const resizeObserver =
+    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resizeToHost()) : null;
+  resizeObserver?.observe(overlay);
 
   const sync = (): void => controller.setState(deriveState(signals));
 
@@ -131,10 +153,30 @@ export function attachToVoiceHooks(
       sync();
     },
     onBoundary: () => controller.pulse(),
+    // Primary mood-strip point: the spoken text is where Claude reliably emits
+    // the tag. Strip it before TTS speaks it, and apply the mood.
+    transformText: (text) => {
+      const parsed = parseMoodMarker(text);
+      if (parsed.mood) {
+        mood.setMood(parsed.mood);
+      }
+      return parsed.stripped;
+    },
   });
   speech.attach();
 
-  const mic = new MicAnalyser({ onLevel: (level) => controller.setMicLevel(level) });
+  // Secondary mood-strip point: a backstop on the rendered transcript so a
+  // marker is never left visible if it bypasses the speak path.
+  const messages = doc.getElementById('conversationMessages');
+  const transcript = messages
+    ? new TranscriptMoodObserver({ root: messages, onMood: (m) => mood.setMood(m) })
+    : null;
+  transcript?.start();
+
+  const mic = new MicAnalyser({
+    onLevel: (level) => controller.setMicLevel(level),
+    onBands: (bands) => controller.setMicBands(bands),
+  });
 
   const onRecognitionStart = (): void => {
     signals.micActive = true;
@@ -176,6 +218,9 @@ export function attachToVoiceHooks(
       mic.stop();
       unpatch();
       micObserver?.disconnect();
+      transcript?.dispose();
+      view.removeEventListener('resize', resizeToHost);
+      resizeObserver?.disconnect();
       avatar.dispose();
       overlay.remove();
     },

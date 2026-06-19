@@ -98,6 +98,28 @@ describe('MicAnalyser', () => {
     expect(mic.sample()).toBe(0);
   });
 
+  it('emits normalized frequency bands when onBands is provided', async () => {
+    const mocks = makeMocks(128);
+    let lastBands: Float32Array | null = null;
+    const mic = new MicAnalyser({
+      onLevel: () => undefined,
+      onBands: (bands) => {
+        lastBands = bands;
+      },
+      bandCount: 2,
+      getUserMedia: mocks.getUserMedia,
+      audioContextFactory: mocks.audioContextFactory,
+    });
+    await mic.start();
+    expect(lastBands).not.toBeNull();
+    const bands = lastBands as unknown as Float32Array;
+    expect(bands).toHaveLength(2);
+    for (const v of bands) {
+      expect(v).toBeCloseTo(128 / 255, 2);
+    }
+    mic.stop();
+  });
+
   it('releases a late stream when stop() lands during start() (no mic leak)', async () => {
     let resolveStream!: (stream: MediaStream) => void;
     const track = { stop: vi.fn() };

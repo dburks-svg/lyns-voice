@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { attachToVoiceHooks, isMicButtonActive } from '../src/integration/voiceHooksAdapter';
+import { MicAnalyser } from '../src/audio/MicAnalyser';
 
 function mockRendererFactory() {
   return (canvas: HTMLCanvasElement): THREE.WebGLRenderer =>
@@ -65,5 +66,26 @@ describe('attachToVoiceHooks', () => {
       const handle = attachToVoiceHooks(document, { rendererFactory: mockRendererFactory() });
       handle.dispose();
     }).not.toThrow();
+  });
+
+  it('dispose tears down the resize listener, the transcript observer, and the mic', () => {
+    const messages = document.createElement('div');
+    messages.id = 'conversationMessages';
+    document.body.appendChild(messages);
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const micStop = vi.spyOn(MicAnalyser.prototype, 'stop');
+    const moDisconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+
+    const handle = attachToVoiceHooks(document, { rendererFactory: mockRendererFactory() });
+    handle.dispose();
+
+    expect(removeSpy).toHaveBeenCalledWith('resize', expect.any(Function));
+    expect(micStop).toHaveBeenCalled();
+    expect(moDisconnect).toHaveBeenCalled(); // the #conversationMessages observer
+
+    removeSpy.mockRestore();
+    micStop.mockRestore();
+    moDisconnect.mockRestore();
   });
 });

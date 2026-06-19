@@ -35,8 +35,10 @@ const BACKUP_SUFFIX = '.avatar-backup';
 /** Asset filename -> source path within this repo. */
 const ASSET_SOURCES = {
   'three.min.js': path.join(REPO_ROOT, 'vendor', 'three.min.js'),
+  'GLTFLoader.js': path.join(REPO_ROOT, 'vendor', 'GLTFLoader.js'),
   'avatar.js': path.join(REPO_ROOT, 'dist', 'avatar.js'),
   'avatar.css': path.join(REPO_ROOT, 'dist', 'avatar.css'),
+  'head.glb': path.join(REPO_ROOT, 'vendor', 'head.glb'),
 };
 
 /**
@@ -211,6 +213,9 @@ async function main() {
   const safeTarget = assertSafeTargetPath(target);
   await assertNotSymlink(safeTarget);
   const publicDir = path.dirname(safeTarget);
+  // Also reject a symlinked containing directory so assets cannot be redirected
+  // (lstat on index.html alone resolves the parent through a symlink).
+  await assertNotSymlink(publicDir);
   const backupPath = safeTarget + BACKUP_SUFFIX;
   const original = await readFile(safeTarget, 'utf8');
 
