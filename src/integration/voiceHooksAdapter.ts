@@ -2,7 +2,10 @@ import { Avatar, type AvatarOptions } from '../avatar/Avatar';
 import { AvatarController, type AvatarState } from '../avatar/AvatarController';
 import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
+import { MoodController } from '../mood/MoodController';
+import { parseMoodMarker } from '../mood/moodProtocol';
 import { safeSetText } from './dom';
+import { TranscriptMoodObserver } from './transcriptMoodObserver';
 
 /**
  * Observable signals about the mcp-voice-hooks conversation, mapped to an avatar
@@ -111,9 +114,14 @@ export function attachToVoiceHooks(
   const signals: VoiceSignals = { micActive: false, speaking: false, pendingResponse: false };
   const statusLabel = doc.getElementById('jarvis-avatar-status');
 
+  // Mood layer: activity drives motion, mood tints color/glow. Default neutral
+  // (pass-through), so with no mood tag the avatar looks exactly as before.
+  const mood = new MoodController();
+
   const controller = new AvatarController({
     avatar,
     onStateChange: (state) => safeSetText(statusLabel, state),
+    moodProvider: mood,
   });
   avatar.beforeRender = (time) => controller.tick(time);
   avatar.start();
@@ -131,8 +139,25 @@ export function attachToVoiceHooks(
       sync();
     },
     onBoundary: () => controller.pulse(),
+    // Primary mood-strip point: the spoken text is where Claude reliably emits
+    // the tag. Strip it before TTS speaks it, and apply the mood.
+    transformText: (text) => {
+      const parsed = parseMoodMarker(text);
+      if (parsed.mood) {
+        mood.setMood(parsed.mood);
+      }
+      return parsed.stripped;
+    },
   });
   speech.attach();
+
+  // Secondary mood-strip point: a backstop on the rendered transcript so a
+  // marker is never left visible if it bypasses the speak path.
+  const messages = doc.getElementById('conversationMessages');
+  const transcript = messages
+    ? new TranscriptMoodObserver({ root: messages, onMood: (m) => mood.setMood(m) })
+    : null;
+  transcript?.start();
 
   const mic = new MicAnalyser({ onLevel: (level) => controller.setMicLevel(level) });
 
@@ -176,6 +201,7 @@ export function attachToVoiceHooks(
       mic.stop();
       unpatch();
       micObserver?.disconnect();
+      transcript?.dispose();
       avatar.dispose();
       overlay.remove();
     },

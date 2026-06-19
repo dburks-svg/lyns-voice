@@ -38,3 +38,12 @@ export type {
 } from './config/config';
 export { loadConfig, saveConfig, sanitizeConfig, STORAGE_KEY } from './config/store';
 export type { StorageLike } from './config/store';
+export { MoodController } from './mood/MoodController';
+export type { MoodLayer } from './mood/MoodController';
+export { parseMoodMarker } from './mood/moodProtocol';
+export type { ParsedMood } from './mood/moodProtocol';
+export { MOODS, MOOD_TABLE, isMood } from './mood/moods';
+export type { Mood, MoodVisual } from './mood/moods';
+export { lerpHex, lerp, clamp01 } from './mood/colorBlend';
+export { TranscriptMoodObserver } from './integration/transcriptMoodObserver';
+export type { TranscriptMoodObserverOptions } from './integration/transcriptMoodObserver';

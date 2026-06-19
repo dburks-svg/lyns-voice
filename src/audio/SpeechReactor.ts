@@ -19,6 +19,12 @@ export interface SpeechReactorOptions {
   onBoundary?: () => void;
   /** Synthetic impulse interval (ms) used when no native boundaries arrive. */
   syntheticIntervalMs?: number;
+  /**
+   * Rewrite each utterance's text before it is spoken. Used to strip the
+   * `<<mood:NAME>>` marker so it is never read aloud. Must be pure and fast; any
+   * throw is swallowed so it can never block speech.
+   */
+  transformText?: (text: string) => string;
 }
 
 type SpeakFn = (utterance: SpeechSynthesisUtterance) => void;
@@ -29,6 +35,7 @@ export class SpeechReactor {
   private readonly onSpeakingEnd?: () => void;
   private readonly onBoundary?: () => void;
   private readonly syntheticIntervalMs: number;
+  private readonly transformText?: (text: string) => string;
 
   private originalSpeak: SpeakFn | null = null;
   private patchedSpeak: SpeakFn | null = null;
@@ -42,6 +49,7 @@ export class SpeechReactor {
     this.onSpeakingEnd = options.onSpeakingEnd;
     this.onBoundary = options.onBoundary;
     this.syntheticIntervalMs = options.syntheticIntervalMs ?? 180;
+    this.transformText = options.transformText;
   }
 
   get isSpeaking(): boolean {
@@ -56,6 +64,16 @@ export class SpeechReactor {
     const original: SpeakFn = synthesis.speak.bind(synthesis);
     this.originalSpeak = original;
     const patched: SpeakFn = (utterance: SpeechSynthesisUtterance): void => {
+      try {
+        if (this.transformText) {
+          const next = this.transformText(utterance.text);
+          if (typeof next === 'string' && next !== utterance.text) {
+            utterance.text = next;
+          }
+        }
+      } catch {
+        // Text rewriting must never block speech.
+      }
       try {
         this.bindUtterance(utterance);
       } catch {

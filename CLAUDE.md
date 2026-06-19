@@ -120,6 +120,31 @@ closed; the injector rejects symlinks and backs up/restores copied assets; the
 speech-recognition/synthesis patches restore conditionally; and idle now shifts to the
 spec's dark navy/slate spectrum. Regression tests were added for each fix.
 
+## Mood tags (the avatar's emotion)
+
+The head changes color/glow by mood. The mood comes from a tiny marker the Claude
+session emits at the very start of a spoken reply:
+
+```
+<<mood:NAME>>
+```
+
+`NAME` is one of: `neutral`, `focused`, `happy`, `concerned`, `error`, `curious`.
+The avatar reads the mood and ALWAYS strips every `<<mood:...>>` marker before TTS
+speaks it and before it shows in the transcript, so it is never heard or seen. No
+tag at all keeps the avatar `neutral` (zero regression). The parser is tolerant
+(case-insensitive, anywhere in the text) so a stray tag is silently removed, never
+spoken.
+
+Convention for the voice session: begin spoken replies with `<<mood:NAME>>` and
+nothing else on that marker, choosing the mood that fits (for example
+`<<mood:happy>>` on success, `<<mood:concerned>>`/`<<mood:error>>` on problems,
+`<<mood:focused>>` while working). Parsing is local and free (it runs off the same
+Claude session), with an optional API-key tone-analysis path deferred to a later
+phase. Platform note: the marker is stripped on the BROWSER-voice path (Windows
+default) and in the transcript; the macOS `system` voice path bypasses the browser
+and is not stripped, so use the browser voice when you want the mood feature.
+
 ## Live mcp-voice-hooks integration (DONE)
 
 `mcp-voice-hooks` v1.0.40 is installed and the avatar overlays its real Voice Mode UI.
