@@ -6,6 +6,7 @@ import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { TranscriptMoodObserver } from './transcriptMoodObserver';
+import { enableTakeover, type TakeoverHandle } from './takeover';
 
 /**
  * Observable signals about the mcp-voice-hooks conversation, mapped to an avatar
@@ -35,6 +36,12 @@ export interface VoiceHooksHandle {
   avatar: Avatar;
   controller: AvatarController;
   dispose(): void;
+}
+
+/** Optional integration behaviours layered on top of the base avatar binding. */
+export interface AttachOptions {
+  /** Replace the host UI with the full-screen "Jarvis only" view. */
+  takeover?: boolean;
 }
 
 interface RecognitionLike extends EventTarget {
@@ -103,6 +110,7 @@ function patchSpeechRecognition(
 export function attachToVoiceHooks(
   doc: Document = document,
   avatarOptions?: AvatarOptions,
+  options: AttachOptions = {},
 ): VoiceHooksHandle {
   const overlay = doc.createElement('div');
   overlay.id = 'jarvis-avatar-overlay';
@@ -119,9 +127,17 @@ export function attachToVoiceHooks(
   // (pass-through), so with no mood tag the avatar looks exactly as before.
   const mood = new MoodController();
 
+  // Optional "Jarvis only" takeover; assigned below once host elements are known.
+  // The onStateChange closure captures it by reference, so state updates routed
+  // here reach it once it exists (the controller never fires during construction).
+  let takeover: TakeoverHandle | null = null;
+
   const controller = new AvatarController({
     avatar,
-    onStateChange: (state) => safeSetText(statusLabel, state),
+    onStateChange: (state) => {
+      safeSetText(statusLabel, state);
+      takeover?.setState(state);
+    },
     moodProvider: mood,
   });
   avatar.beforeRender = (time) => controller.tick(time);
@@ -210,6 +226,13 @@ export function attachToVoiceHooks(
       })
     : null;
 
+  // "Jarvis only" view: hide the host chrome, show the head full-screen with a
+  // reply caption and a tap-to-talk control proxying the real mic button.
+  if (options.takeover) {
+    takeover = enableTakeover({ doc, micButton: micBtn, messagesRoot: messages });
+    takeover.setState(controller.current);
+  }
+
   return {
     avatar,
     controller,
@@ -218,6 +241,7 @@ export function attachToVoiceHooks(
       mic.stop();
       unpatch();
       micObserver?.disconnect();
+      takeover?.dispose();
       transcript?.dispose();
       view.removeEventListener('resize', resizeToHost);
       resizeObserver?.disconnect();

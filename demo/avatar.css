@@ -3,8 +3,9 @@
  * mcp-voice-hooks page.
  *
  * Demo: full-window dark stage with a centered, glowing canvas and a floating
- * neon control panel. Host: a small transparent floating overlay (see
- * #jarvis-avatar-overlay) that sits over the voice UI without blocking it.
+ * neon control panel. Host ("Jarvis only" takeover): the head fills the window,
+ * the voice UI chrome is hidden, and a reply caption + tap-to-talk control are
+ * layered on top (see the takeover block at the end of this file).
  */
 
 :root {
@@ -24,6 +25,16 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+}
+
+/*
+ * The dark neon stage applies ONLY to the standalone demo (body.jarvis-demo) and
+ * the injected "Jarvis only" takeover (body.jarvis-takeover). A plain injected
+ * host that is NOT in takeover keeps the voice UI's own light theme, so the dark
+ * stage never bleeds through behind it.
+ */
+body.jarvis-demo,
+body.jarvis-takeover {
   background:
     radial-gradient(circle at 50% 38%, rgba(0, 119, 255, 0.12), transparent 60%),
     var(--avatar-bg);
@@ -147,6 +158,257 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   #controls button {
+    transition: none;
+  }
+}
+
+/* =======================================================================
+ * "Jarvis only" takeover: the injected host becomes a full-screen avatar.
+ * Every rule is scoped to body.jarvis-takeover (or its absence), so the
+ * standalone demo and a non-takeover host are unaffected. The host voice UI is
+ * hidden but kept in the DOM and fully functional.
+ * ===================================================================== */
+
+/* The avatar overlay is the focal layer in takeover mode; hidden otherwise so a
+ * classic host stays pristine (no head bleeding over the light voice UI). */
+body:not(.jarvis-takeover) #jarvis-avatar-overlay {
+  display: none;
+}
+body.jarvis-takeover #jarvis-avatar-overlay {
+  z-index: 1;
+}
+
+/* Hide the host's voice-UI chrome section-by-section, keeping every node in the
+ * DOM and functional: the mic button is clicked programmatically,
+ * #conversationMessages is still observed, and the Voice Settings subtree is
+ * surfaced on demand (the gear). We hide per-section rather than clipping the
+ * whole container so the settings descendant can be revealed without an
+ * opacity/clip ancestor forcing it invisible. */
+body.jarvis-takeover .app-container {
+  background: transparent;
+  max-width: none;
+  box-shadow: none;
+}
+body.jarvis-takeover .app-header,
+body.jarvis-takeover .conversation-section,
+body.jarvis-takeover .send-mode-controls,
+body.jarvis-takeover .input-container {
+  display: none;
+}
+body.jarvis-takeover .input-section {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+/* Voice Settings: hidden until the gear opens it, then shown as a floating dark
+ * panel layered over the avatar (so the user never has to leave Jarvis view). */
+body.jarvis-takeover .settings-toggle {
+  display: none;
+}
+body.jarvis-takeover.jarvis-settings-open .settings-toggle {
+  display: block;
+  position: fixed;
+  top: 58px;
+  right: 14px;
+  z-index: 5;
+  width: min(360px, 92vw);
+  max-height: 72vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 14px 16px;
+  background: rgba(6, 14, 26, 0.97);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+}
+/* Force the settings body open (the host collapses it until its own header click). */
+body.jarvis-takeover.jarvis-settings-open #settingsContent {
+  display: block;
+}
+/* Dark-theme the host's light settings controls inside the floating panel. */
+body.jarvis-takeover.jarvis-settings-open .settings-toggle .toggle-header h3,
+body.jarvis-takeover.jarvis-settings-open .settings-toggle label,
+body.jarvis-takeover.jarvis-settings-open .settings-toggle .voice-response-label {
+  color: #cfe6ff;
+}
+body.jarvis-takeover.jarvis-settings-open .settings-toggle .toggle-header:hover {
+  background: rgba(0, 240, 255, 0.08);
+}
+body.jarvis-takeover.jarvis-settings-open .settings-toggle .voice-response-control {
+  background: rgba(0, 240, 255, 0.06);
+}
+body.jarvis-takeover.jarvis-settings-open .settings-toggle select,
+body.jarvis-takeover.jarvis-settings-open .settings-toggle input[type="number"] {
+  background: #0d1726;
+  color: #e6f3ff;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+}
+
+/* Latest reply, large and readable (also lets you READ replies when TTS is off). */
+#jarvis-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 136px;
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: min(900px, 88vw);
+  margin: 0;
+  padding: 0 16px;
+  text-align: center;
+  font-size: clamp(16px, 2.4vw, 28px);
+  line-height: 1.45;
+  color: #d8ecff;
+  text-shadow:
+    0 0 12px rgba(0, 200, 255, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+#jarvis-caption.show {
+  opacity: 1;
+}
+
+/* Single tap-to-talk control (proxies the host mic button). */
+#jarvis-talk {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 240, 255, 0.6);
+  background: radial-gradient(circle at 50% 35%, rgba(0, 240, 255, 0.18), rgba(6, 14, 26, 0.85));
+  color: var(--avatar-cyan);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 24px rgba(0, 119, 255, 0.35);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+#jarvis-talk:hover {
+  box-shadow: 0 0 34px rgba(0, 240, 255, 0.5);
+}
+#jarvis-talk:active {
+  transform: translateX(-50%) scale(0.94);
+}
+#jarvis-talk svg {
+  width: 30px;
+  height: 30px;
+  fill: currentColor;
+  pointer-events: none;
+}
+#jarvis-talk[data-state="listening"] {
+  border-color: #ff5a7a;
+  color: #ff8aa0;
+  animation: jarvisTalkPulse 1.4s ease-in-out infinite;
+}
+#jarvis-talk[data-state="thinking"] {
+  border-color: #33e0ff;
+  color: #aef0ff;
+}
+#jarvis-talk[data-state="speaking"] {
+  border-color: #00a0ff;
+  color: #7fd0ff;
+}
+@keyframes jarvisTalkPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 90, 122, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(255, 90, 122, 0);
+  }
+}
+
+/* State word under the control. */
+#jarvis-talk-label {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--avatar-text);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Top-right control cluster: gear (voice settings) + mode toggle. Always
+ * available (both modes) so the user is never trapped. */
+#jarvis-controls {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#jarvis-mode-toggle,
+#jarvis-gear {
+  font-family: "Courier New", "Courier", monospace;
+  color: var(--avatar-text);
+  background: rgba(6, 14, 26, 0.6);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+}
+#jarvis-mode-toggle {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+#jarvis-gear {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+#jarvis-mode-toggle:hover,
+#jarvis-gear:hover {
+  color: var(--avatar-cyan);
+  border-color: rgba(0, 240, 255, 0.6);
+}
+body.jarvis-settings-open #jarvis-gear {
+  color: var(--avatar-cyan);
+  border-color: rgba(0, 240, 255, 0.7);
+  background: rgba(0, 240, 255, 0.12);
+}
+/* The gear is only meaningful in takeover mode (classic has its own settings). */
+body:not(.jarvis-takeover) #jarvis-gear {
+  display: none;
+}
+/* In classic mode the toggle adopts the host's light look so it is legible. */
+body:not(.jarvis-takeover) #jarvis-mode-toggle {
+  color: #666;
+  background: #fff;
+  border: 1px solid #ddd;
+}
+
+/* Caption, talk control, and label render only in takeover mode. */
+body:not(.jarvis-takeover) #jarvis-caption,
+body:not(.jarvis-takeover) #jarvis-talk,
+body:not(.jarvis-takeover) #jarvis-talk-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #jarvis-talk[data-state="listening"] {
+    animation: none;
+  }
+  #jarvis-caption {
     transition: none;
   }
 }

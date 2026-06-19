@@ -36,7 +36,7 @@ function hostAvatarOptions(): AvatarOptions {
 
 function autoAttach(): void {
   if (isVoiceHooksHost()) {
-    attachToVoiceHooks(document, hostAvatarOptions());
+    attachToVoiceHooks(document, hostAvatarOptions(), { takeover: true });
   }
 }
 

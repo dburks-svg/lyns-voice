@@ -63,6 +63,27 @@ Gate: lint + typecheck clean; 118 unit tests + the e2e smoke pass; bundle builds
 injector round-trip verified (inject copies GLTFLoader.js + head.glb, revert
 restores the original byte-for-byte).
 
+## v0.4.1: "Jarvis only" takeover (host view)
+
+The injected host now renders as a full-screen avatar. `integration/takeover.ts`
+hides the mcp-voice-hooks Messenger chrome (kept in the DOM and functional, NOT
+removed), shows the head full-window, renders the latest assistant reply as a
+large caption (so replies are READABLE even when TTS audio is off), and adds one
+tap-to-talk control that proxies the real `#micBtn` (all host recognition /
+auto-send logic is reused). A top-right cluster holds a gear and a mode toggle:
+the gear opens the host's Voice Settings as a floating dark panel layered over
+the avatar (it un-hides the `.settings-toggle` subtree and forces
+`#settingsContent` open), so the voice/voice-responses can be changed without
+leaving the view; the toggle flips between "Jarvis only" and "Classic UI" and
+remembers the choice in localStorage (`jarvisTakeover`, default on), so the user
+is never trapped. `attachToVoiceHooks` takes a third
+`{ takeover }` option; `bundle.ts` passes `takeover: true` on the host, so the
+demo and unit tests (which omit it) are unaffected. The dark stage CSS is now
+scoped to `body.jarvis-demo` / `body.jarvis-takeover`, so a non-takeover host
+keeps the voice UI's own light theme (this fixes the earlier "old UI bleeding
+through" clash). Gate: lint + typecheck clean; 138 unit tests pass; live
+`localhost:5111` screenshot verified.
+
 ## Commands
 
 | Task | Command |

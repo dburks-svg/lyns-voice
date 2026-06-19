@@ -48,3 +48,6 @@ export type { Mood, MoodVisual } from './mood/moods';
 export { lerpHex, lerp, clamp01 } from './mood/colorBlend';
 export { TranscriptMoodObserver } from './integration/transcriptMoodObserver';
 export type { TranscriptMoodObserverOptions } from './integration/transcriptMoodObserver';
+export { enableTakeover, latestAssistantText } from './integration/takeover';
+export type { TakeoverHandle, TakeoverOptions } from './integration/takeover';
+export type { AttachOptions } from './integration/voiceHooksAdapter';
