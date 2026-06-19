@@ -17,6 +17,8 @@ export type {
 } from './avatar/AvatarController';
 export { displacement } from './avatar/deformation';
 export type { DeformationParams } from './avatar/deformation';
+export { extractHeadGeometry, normalizeHeadGeometry, loadHeadGeometry } from './avatar/gltf';
+export type { GLTFLoaderLike, GLTFLoaderFactory, GLTFResultLike, LoadHeadOptions } from './avatar/gltf';
 export { perlin3 } from './avatar/noise';
 export { MicAnalyser, computeLevel } from './audio/MicAnalyser';
 export type { MicAnalyserOptions, GetUserMedia } from './audio/MicAnalyser';
