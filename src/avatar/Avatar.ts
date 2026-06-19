@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { DEFAULT_CONFIG } from '../config/config';
+import { DEFAULT_CONFIG, type Skin } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
+import { loadHeadGeometry, type GLTFLoaderFactory } from './gltf';
 import { AVATAR_FRAGMENT_SHADER, AVATAR_VERTEX_SHADER } from './shaders';
 
 export type RendererFactory = (canvas: HTMLCanvasElement) => THREE.WebGLRenderer;
@@ -19,6 +20,17 @@ export interface AvatarOptions {
    * created; production uses the default factory.
    */
   rendererFactory?: RendererFactory;
+  /** 'orb' (default) renders the wireframe icosahedron; 'head' loads `headUrl`. */
+  skin?: Skin;
+  /** Relative URL of the head GLB (used when `skin` is 'head'). */
+  headUrl?: string;
+  /**
+   * Injects the GLTF loader: the UMD global `THREE.GLTFLoader` in the bundle, the
+   * ESM loader in the demo, a fake in tests. Without it, 'head' stays on the orb.
+   */
+  gltfLoaderFactory?: GLTFLoaderFactory;
+  /** Scales deformation magnitude; head meshes use < 1 so they pulse, not melt. */
+  amplitudeScale?: number;
 }
 
 /** Baseline idle breathing: gentle, slow, living-but-calm. Sourced from config. */
@@ -48,7 +60,8 @@ export class Avatar {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
-  readonly geometry: THREE.IcosahedronGeometry;
+  /** Widened to BufferGeometry so the head mesh can replace the orb at runtime. */
+  geometry: THREE.BufferGeometry;
   readonly material: THREE.ShaderMaterial;
   readonly mesh: THREE.Mesh;
 
@@ -57,6 +70,16 @@ export class Avatar {
 
   idleRotationSpeed = DEFAULTS.rotationSpeed;
 
+  /** Multiplier on deformation magnitude (head meshes scale this down). */
+  amplitudeScale: number;
+
+  /**
+   * Resolves when the requested skin is ready: immediately for the orb, or after
+   * the head GLB has loaded and been adopted. A head-load failure still resolves
+   * (the orb is kept), so awaiting `ready` never rejects.
+   */
+  readonly ready: Promise<void>;
+
   /**
    * Optional per-frame hook invoked at the start of `update`, before deform and
    * render. The state controller plugs in here so there is a single render loop.
@@ -64,8 +87,8 @@ export class Avatar {
   beforeRender: ((time: number) => void) | null = null;
 
   private readonly canvas: HTMLCanvasElement;
-  private readonly restPositions: Float32Array;
-  private readonly restNormals: Float32Array;
+  private restPositions: Float32Array;
+  private restNormals: Float32Array;
   private readonly clock = new THREE.Clock();
   private rafId = 0;
   private container: HTMLElement | null = null;
@@ -75,6 +98,7 @@ export class Avatar {
     const detail = options.detail ?? DEFAULTS.detail;
     const colorA = options.colorA ?? DEFAULTS.colorA;
     const colorB = options.colorB ?? DEFAULTS.colorB;
+    this.amplitudeScale = options.amplitudeScale ?? DEFAULT_CONFIG.amplitudeScale;
 
     this.canvas = document.createElement('canvas');
     this.renderer = (options.rendererFactory ?? defaultRendererFactory)(this.canvas);
@@ -105,6 +129,46 @@ export class Avatar {
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.scene.add(this.mesh);
+
+    // Fallback-then-swap: the orb renders instantly. If a head skin is requested
+    // and a loader is available, load the GLB and atomically adopt it when ready.
+    // A load failure keeps the orb (graceful), so `ready` never rejects.
+    const skin = options.skin ?? DEFAULT_CONFIG.skin;
+    const headUrl = options.headUrl ?? DEFAULT_CONFIG.headUrl;
+    if (skin === 'head' && options.gltfLoaderFactory) {
+      this.ready = loadHeadGeometry({
+        url: headUrl,
+        loaderFactory: options.gltfLoaderFactory,
+        targetRadius: radius,
+      })
+        .then((geometry) => this.adoptGeometry(geometry))
+        .catch((err: unknown) => {
+          console.warn('[avatar] head model failed to load; keeping orb', err);
+        });
+    } else {
+      this.ready = Promise.resolve();
+    }
+  }
+
+  /**
+   * Atomically replace the rendered geometry and its captured rest shape. Invoked
+   * from the head-load promise (a microtask, outside `update`/`deform`), so it
+   * never interleaves with a deform pass. Disposes the geometry it replaces.
+   */
+  private adoptGeometry(next: THREE.BufferGeometry): void {
+    if (!next.getAttribute('normal')) {
+      next.computeVertexNormals();
+    }
+    const previous = this.geometry;
+    const position = next.getAttribute('position');
+    const normal = next.getAttribute('normal');
+    this.restPositions = Float32Array.from(position.array as Float32Array);
+    this.restNormals = Float32Array.from(normal.array as Float32Array);
+    this.geometry = next;
+    this.mesh.geometry = next;
+    if (previous !== next) {
+      previous.dispose();
+    }
   }
 
   /** Attach the canvas to the page and size it to the container. */
@@ -151,7 +215,7 @@ export class Avatar {
       const rx = rest[i];
       const ry = rest[i + 1];
       const rz = rest[i + 2];
-      const d = displacement(rx, ry, rz, time, this.params);
+      const d = displacement(rx, ry, rz, time, this.params) * this.amplitudeScale;
       arr[i] = rx + norm[i] * d;
       arr[i + 1] = ry + norm[i + 1] * d;
       arr[i + 2] = rz + norm[i + 2] * d;
