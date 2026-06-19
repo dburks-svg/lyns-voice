@@ -130,7 +130,11 @@ function wireSpeakTest(controller: AvatarController): void {
     const utterance = new SpeechSynthesisUtterance(
       'Online and ready. All systems nominal, sir. How may I assist you today?',
     );
-    const voice = synth?.getVoices().find((v) => v.lang.startsWith('en'));
+    // Prefer a LOCAL (offline) English voice; network voices often fail silently.
+    const voices = synth?.getVoices() ?? [];
+    const voice =
+      voices.find((v) => v.localService && v.lang.startsWith('en')) ??
+      voices.find((v) => v.lang.startsWith('en'));
     if (voice) {
       utterance.voice = voice;
     }
