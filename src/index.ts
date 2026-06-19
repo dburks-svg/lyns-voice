@@ -25,3 +25,14 @@ export type { SpeechReactorOptions } from './audio/SpeechReactor';
 export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';
 export type { VoiceSignals, VoiceHooksHandle } from './integration/voiceHooksAdapter';
 export { safeSetText } from './integration/dom';
+export { DEFAULT_CONFIG, cloneConfig } from './config/config';
+export type {
+  AvatarConfig,
+  Skin,
+  GlowMode,
+  MoodSource,
+  PaletteConfig,
+  FeatureFlags,
+} from './config/config';
+export { loadConfig, saveConfig, sanitizeConfig, STORAGE_KEY } from './config/store';
+export type { StorageLike } from './config/store';

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_CONFIG } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
 import { AVATAR_FRAGMENT_SHADER, AVATAR_VERTEX_SHADER } from './shaders';
 
@@ -20,15 +21,15 @@ export interface AvatarOptions {
   rendererFactory?: RendererFactory;
 }
 
-/** Baseline idle breathing: gentle, slow, living-but-calm. */
-export const IDLE_PARAMS: DeformationParams = { amplitude: 0.12, frequency: 1.1, speed: 0.5 };
+/** Baseline idle breathing: gentle, slow, living-but-calm. Sourced from config. */
+export const IDLE_PARAMS: DeformationParams = { ...DEFAULT_CONFIG.idle };
 
 const DEFAULTS = {
-  radius: 1.2,
-  detail: 3,
-  colorA: 0x00f0ff,
-  colorB: 0x0077ff,
-  rotationSpeed: 0.15,
+  radius: DEFAULT_CONFIG.mesh.radius,
+  detail: DEFAULT_CONFIG.mesh.detail,
+  colorA: DEFAULT_CONFIG.palette.neonRim,
+  colorB: DEFAULT_CONFIG.palette.listeningCore,
+  rotationSpeed: DEFAULT_CONFIG.rotation.idle,
 };
 
 function defaultRendererFactory(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
