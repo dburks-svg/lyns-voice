@@ -42,6 +42,11 @@ export class SpeechReactor {
   private speaking = false;
   private nativeBoundarySeen = false;
   private syntheticTimer: ReturnType<typeof setInterval> | null = null;
+  // Strong references to in-flight utterances. Chrome garbage-collects an
+  // utterance with no live reference mid-speak, silently dropping the audio, so
+  // we retain each one until it ends. (The host's app.js keeps no reference,
+  // which is the common cause of "speech runs but nothing is heard".)
+  private readonly alive = new Set<SpeechSynthesisUtterance>();
 
   constructor(options: SpeechReactorOptions = {}) {
     this.synthesis = options.synthesis ?? globalThis.speechSynthesis;
@@ -54,6 +59,11 @@ export class SpeechReactor {
 
   get isSpeaking(): boolean {
     return this.speaking;
+  }
+
+  /** Number of utterances currently held alive (test seam for the anti-GC guard). */
+  get aliveCount(): number {
+    return this.alive.size;
   }
 
   attach(): void {
@@ -76,9 +86,15 @@ export class SpeechReactor {
       }
       try {
         this.bindUtterance(utterance);
+        // Retain a strong reference until the utterance ends so Chrome cannot GC
+        // it mid-speak (a silent-failure bug the host code does not guard).
+        this.keepAlive(utterance);
       } catch {
-        // Binding must never block speech.
+        // Binding / keep-alive must never block speech.
       }
+      // Nudge a paused or stuck engine before speaking (another Chrome cause of
+      // silent speech). Best-effort: never blocks the original speak.
+      this.resumeIfPaused();
       original(utterance);
     };
     this.patchedSpeak = patched;
@@ -87,6 +103,7 @@ export class SpeechReactor {
 
   detach(): void {
     this.stopSynthetic();
+    this.alive.clear();
     if (this.speaking) {
       // Emit a clean terminal transition so consumers do not latch on "speaking".
       this.speaking = false;
@@ -109,6 +126,28 @@ export class SpeechReactor {
     });
     utterance.addEventListener('end', () => this.handleEnd());
     utterance.addEventListener('error', () => this.handleEnd());
+  }
+
+  /** Hold a reference until the utterance terminates, then release it. */
+  private keepAlive(utterance: SpeechSynthesisUtterance): void {
+    this.alive.add(utterance);
+    const release = (): void => {
+      this.alive.delete(utterance);
+    };
+    utterance.addEventListener('end', release);
+    utterance.addEventListener('error', release);
+  }
+
+  /** Resume a paused engine so a queued utterance can actually start. */
+  private resumeIfPaused(): void {
+    const synthesis = this.synthesis;
+    try {
+      if (synthesis && synthesis.paused && typeof synthesis.resume === 'function') {
+        synthesis.resume();
+      }
+    } catch {
+      // resume is best-effort and must never block speech.
+    }
   }
 
   private handleStart(): void {

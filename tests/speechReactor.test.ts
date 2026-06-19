@@ -106,6 +106,53 @@ describe('SpeechReactor', () => {
     expect(speak).toHaveBeenCalledWith(hostile);
   });
 
+  it('holds a strong reference to the utterance until it ends (anti-GC)', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    expect(reactor.aliveCount).toBe(1);
+    utterance.dispatchEvent(new Event('end'));
+    expect(reactor.aliveCount).toBe(0);
+  });
+
+  it('releases the held reference on error too', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    expect(reactor.aliveCount).toBe(1);
+    utterance.dispatchEvent(new Event('error'));
+    expect(reactor.aliveCount).toBe(0);
+  });
+
+  it('resumes a paused engine before speaking, but not a running one', () => {
+    const resume = vi.fn();
+    const paused = { speak: vi.fn(), paused: true, resume } as unknown as SpeechSynthesis;
+    const r1 = new SpeechReactor({ synthesis: paused });
+    r1.attach();
+    paused.speak(fakeUtterance());
+    expect(resume).toHaveBeenCalledTimes(1);
+
+    const running = { speak: vi.fn(), paused: false, resume: vi.fn() } as unknown as SpeechSynthesis;
+    const r2 = new SpeechReactor({ synthesis: running });
+    r2.attach();
+    running.speak(fakeUtterance());
+    expect(running.resume).not.toHaveBeenCalled();
+  });
+
+  it('detach drops all held references', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    synthesis.speak(fakeUtterance());
+    expect(reactor.aliveCount).toBe(1);
+    reactor.detach();
+    expect(reactor.aliveCount).toBe(0);
+  });
+
   it('maps a speech error to a speaking-end transition', () => {
     const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
     const onSpeakingEnd = vi.fn();
