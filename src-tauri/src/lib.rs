@@ -17,6 +17,7 @@ pub fn run() {
             .build(),
         )?;
       }
+      app.handle().plugin(tauri_plugin_notification::init())?;
       Ok(())
     })
     .manage(stt::SttState::default())

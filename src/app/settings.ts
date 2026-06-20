@@ -23,6 +23,7 @@ export interface AppSettings {
   panelLayouts?: PanelLayout[];
   snapThreshold: number;
   autoReconnect: boolean;
+  notifyOnTurnEnd: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -34,6 +35,7 @@ const DEFAULTS: AppSettings = {
   theme: 'cyan',
   snapThreshold: 12,
   autoReconnect: true,
+  notifyOnTurnEnd: true,
 };
 
 export function loadSettings(): AppSettings {

@@ -3,6 +3,7 @@ export interface ShortcutActions {
   toggleDiffs: () => void;
   toggleSettings: () => void;
   toggleMic: () => void;
+  toggleMini: () => void;
   closeFocused: () => void;
 }
 
@@ -35,6 +36,11 @@ export function attachShortcuts(actions: ShortcutActions): () => void {
     if (e.altKey && e.key === 's') {
       e.preventDefault();
       actions.toggleSettings();
+      return;
+    }
+    if (e.altKey && e.key === 'm') {
+      e.preventDefault();
+      actions.toggleMini();
       return;
     }
     if (e.key === 'Escape') {

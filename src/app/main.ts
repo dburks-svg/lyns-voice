@@ -7,6 +7,7 @@ import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 import { attachShortcuts } from './shortcuts';
+import { MiniMode } from './mini-mode';
 
 /**
  * Q desktop app entry.
@@ -72,6 +73,7 @@ async function bootstrap(): Promise<void> {
     }),
     micDeviceId: () => settings.micDeviceId,
     autoReconnect: settings.autoReconnect,
+    notifyOnTurnEnd: settings.notifyOnTurnEnd,
     onReconnectStatus: (status) => {
       const cap = document.getElementById('caption');
       if (!cap) return;
@@ -410,12 +412,20 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  // Compact / mini (PiP) mode: shrink to orb-only always-on-top.
+  const miniMode = new MiniMode();
+  const miniBtn = document.getElementById('mini-btn');
+  const miniRestore = document.getElementById('mini-restore');
+  miniBtn?.addEventListener('click', () => void miniMode.enter());
+  miniRestore?.addEventListener('click', () => void miniMode.exit());
+
   // Keyboard shortcuts: Alt+T/D/S toggle panels, Escape closes topmost, Space toggles mic.
   attachShortcuts({
     toggleTerminal: () => terminalBtn?.click(),
     toggleDiffs: () => diffBtn?.click(),
     toggleSettings: () => settingsBtn?.click(),
     toggleMic,
+    toggleMini: () => void miniMode.toggle(),
     closeFocused: () => {
       if (settingsDrawer && !settingsDrawer.hidden) {
         settingsBtn?.click();

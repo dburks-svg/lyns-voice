@@ -7,6 +7,7 @@ function makeActions(): ShortcutActions {
     toggleDiffs: vi.fn(),
     toggleSettings: vi.fn(),
     toggleMic: vi.fn(),
+    toggleMini: vi.fn(),
     closeFocused: vi.fn(),
   };
 }

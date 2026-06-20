@@ -223,6 +223,8 @@ export interface TauriAdapterOptions {
   onReconnectStatus?: (status: { attempting: boolean; attempt: number; maxAttempts: number }) => void;
   /** Whether auto-reconnect is enabled (default true). */
   autoReconnect?: boolean;
+  /** Whether to show a system notification when a turn ends while backgrounded. */
+  notifyOnTurnEnd?: boolean;
 }
 
 export interface TauriHandle {
@@ -496,6 +498,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     sync();
   };
 
+  // Visibility tracking for background notifications.
+  let windowFocused = !view.document.hidden;
+  view.document.addEventListener('visibilitychange', () => {
+    windowFocused = !view.document.hidden;
+  });
+  const notifyOnTurnEnd = options.notifyOnTurnEnd !== false;
+
   // --- Claude bridge (Phase 3): the full voice loop -------------------------
   // onUtterance -> claude_submit -> Thinking -> spoken reply (with mood) -> idle.
   let claudeConnected = false;
@@ -527,7 +536,15 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     }
     // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
     // Speaking, so there is no idle flicker between Thinking and the spoken reply.
-    void speak(text); // parses mood, captions, and queues the reply
+    void speak(text);
+    if (!windowFocused && notifyOnTurnEnd) {
+      void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
+        sendNotification({ title: 'Q', body: 'Response ready.' });
+      }).catch(() => undefined);
+      void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        void getCurrentWindow().requestUserAttention(2);
+      }).catch(() => undefined);
+    }
   });
   addListener<{ active: boolean; cwd: string }>('claude://ready', (p) => {
     if (p.active) {

@@ -685,3 +685,52 @@ body[data-state="speaking"] {
     grid-row: 4;
   }
 }
+
+/* Compact / mini (PiP) mode: hide everything except the orb and mic. */
+body.mini-mode .hud-bar,
+body.mini-mode .session-strip,
+body.mini-mode .settings-drawer,
+body.mini-mode .col-left,
+body.mini-mode .col-right,
+body.mini-mode .caption,
+body.mini-mode .status,
+body.mini-mode .terminal-layer,
+body.mini-mode #diff-layer {
+  display: none !important;
+}
+body.mini-mode .stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.mini-mode .stage-footer {
+  position: fixed;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+body.mini-mode .mic-button {
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+}
+body.mini-mode .mic-label {
+  display: none;
+}
+body.mini-mode #mini-restore {
+  display: block;
+}
+#mini-restore {
+  display: none;
+  position: fixed;
+  top: 4px;
+  right: 4px;
+  z-index: 100;
+  background: var(--glass);
+  border: 1px solid var(--accent-faint);
+  color: var(--ink);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
