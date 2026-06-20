@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   toArrayBuffer,
   tauriTtsFetch,
   splitForSpeech,
+  createWatchdog,
   type InvokeFn,
 } from '../src/integration/tauriAdapter';
 
@@ -106,5 +107,66 @@ describe('splitForSpeech', () => {
       expect(c.length).toBeLessThanOrEqual(40);
     }
     expect(chunks.join(' ').split(/\s+/)).toEqual(long.split(' '));
+  });
+});
+
+describe('createWatchdog', () => {
+  it('fires onTimeout after the delay when armed', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout);
+      wd.arm();
+      vi.advanceTimersByTime(999);
+      expect(onTimeout).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not fire after clear()', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout);
+      wd.arm();
+      wd.clear();
+      vi.advanceTimersByTime(5000);
+      expect(onTimeout).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('arming while already armed does not restart the countdown', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout);
+      wd.arm();
+      vi.advanceTimersByTime(600);
+      wd.arm(); // no-op: must NOT push the deadline out
+      vi.advanceTimersByTime(400);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-arms after firing', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout);
+      wd.arm();
+      vi.advanceTimersByTime(1000);
+      wd.arm();
+      vi.advanceTimersByTime(1000);
+      expect(onTimeout).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

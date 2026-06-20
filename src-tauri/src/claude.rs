@@ -74,20 +74,60 @@ struct Usage {
     cost_usd: f64,
 }
 
-const CLAUDE_ARGS: &[&str] = &[
+const BASE_ARGS: &[&str] = &[
     "--print",
     "--input-format",
     "stream-json",
     "--output-format",
     "stream-json",
     "--verbose",
-    // SECURITY (MVP): headless mode must never block on a permission dialog, so the
-    // child runs with full tool autonomy in the chosen project dir. The user is
-    // delegating their own machine by voice and is warned in the UI; the dir is
-    // required (no silent home default). Phase 4 replaces this with an allowlist +
-    // a spoken/visible confirm step for mutating tools.
+    // SECURITY (Phase 4): `dontAsk` is non-interactive (it never blocks on a
+    // permission dialog, so the headless sidecar cannot hang) AND it DENIES any
+    // tool not on `--allowedTools` below, replacing the old blanket
+    // `bypassPermissions` ("bypass ALL checks"). The allowlist is now the explicit,
+    // auditable capability surface; the activity HUD shows every tool as it runs.
+    // NOTE: this is not an OS sandbox - the required project dir is the intended
+    // blast radius, and `claude` still runs real edits/commands within the
+    // allowlist. A true per-tool interactive confirm awaits Claude Code's
+    // (currently undocumented) `--permission-prompt-tool` protocol.
     "--permission-mode",
-    "bypassPermissions",
+    "dontAsk",
+];
+
+/// Tools Claude may use unprompted. `dontAsk` auto-DENIES anything not listed
+/// (no hang), so this slice is the app's entire capability surface. Tune here.
+const ALLOWED_TOOLS: &[&str] = &[
+    // Read-only / inspection
+    "Read",
+    "Grep",
+    "Glob",
+    "LS",
+    "NotebookRead",
+    "WebFetch",
+    "WebSearch",
+    // Mutating (the point of a voice coding assistant) - visible in the HUD feed
+    "Edit",
+    "MultiEdit",
+    "Write",
+    "NotebookEdit",
+    "Bash",
+    // Orchestration
+    "Task",
+    "TodoWrite",
+];
+
+/// Catastrophic shell patterns denied even though `Bash` is allowed (deny wins
+/// over allow). Best-effort defense-in-depth against system-destroying commands;
+/// NOT a substitute for the project-dir blast radius (it cannot catch every
+/// variant, e.g. absolute paths or aliases).
+const DISALLOWED_TOOLS: &[&str] = &[
+    "Bash(shutdown:*)",
+    "Bash(reboot:*)",
+    "Bash(mkfs:*)",
+    "Bash(diskpart:*)",
+    "Bash(format:*)",
+    "Bash(dd:*)",
+    "Bash(rm:-rf /*)",
 ];
 
 /// Start (or restart) the Claude sidecar with `dir` as its working directory (a
@@ -225,8 +265,13 @@ fn is_current(app: &AppHandle, my_gen: u64) -> bool {
 fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
     let build = |program: &OsStr| {
         let mut c = Command::new(program);
-        c.args(CLAUDE_ARGS)
-            .current_dir(cwd)
+        c.args(BASE_ARGS);
+        // `--allowedTools <tools...>` / `--disallowedTools <tools...>` are variadic;
+        // each value is a separate argv entry (no shell, so the parens/globs in the
+        // patterns are passed literally to claude, not expanded by a shell).
+        c.arg("--allowedTools").args(ALLOWED_TOOLS);
+        c.arg("--disallowedTools").args(DISALLOWED_TOOLS);
+        c.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -373,4 +418,45 @@ fn emit_usage(app: &AppHandle, v: &Value) {
             cost_usd: v.get("total_cost_usd").and_then(Value::as_f64).unwrap_or(0.0),
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{shorten, tool_target};
+    use serde_json::json;
+
+    #[test]
+    fn tool_target_picks_a_meaningful_field_per_tool() {
+        assert_eq!(
+            tool_target("Read", Some(&json!({"file_path": "src/a.ts"}))),
+            "src/a.ts"
+        );
+        assert_eq!(
+            tool_target("Bash", Some(&json!({"command": "npm test"}))),
+            "npm test"
+        );
+        assert_eq!(tool_target("Grep", Some(&json!({"pattern": "foo"}))), "foo");
+        assert_eq!(
+            tool_target("WebFetch", Some(&json!({"url": "https://x.dev"}))),
+            "https://x.dev"
+        );
+        // Unknown tool falls back through the common keys.
+        assert_eq!(
+            tool_target("Mystery", Some(&json!({"path": "/tmp/z"}))),
+            "/tmp/z"
+        );
+        // Missing input / missing field yields an empty target (never panics).
+        assert_eq!(tool_target("Read", None), "");
+        assert_eq!(tool_target("Read", Some(&json!({"other": 1}))), "");
+    }
+
+    #[test]
+    fn shorten_keeps_the_tail_under_the_cap() {
+        assert_eq!(shorten("short", 52), "short");
+        let long = "x".repeat(80);
+        let out = shorten(&long, 52);
+        assert!(out.chars().count() <= 52);
+        assert!(out.starts_with('\u{2026}'));
+        assert!(out.ends_with("xxxx"));
+    }
 }

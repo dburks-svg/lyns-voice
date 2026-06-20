@@ -74,6 +74,45 @@ export type AvatarFactory = (options?: AvatarOptions) => AvatarLike;
 
 const defaultAvatarFactory: AvatarFactory = (options) => new JarvisOrbAvatar(options);
 
+/** How long to wait for a Claude reply before recovering from a hung Thinking. */
+const WATCHDOG_MS = 120_000;
+
+/** The timer surface the watchdog needs (injectable so tests use fake timers). */
+type TimerView = Pick<Window, 'setTimeout' | 'clearTimeout'>;
+
+export interface Watchdog {
+  /** Start the countdown (no-op if already armed). */
+  arm(): void;
+  /** Cancel the countdown (no-op if not armed). */
+  clear(): void;
+}
+
+/**
+ * A single-shot, re-armable timeout. `arm()` while already armed is a no-op (the
+ * countdown is not restarted), so repeated syncs during one Thinking turn don't
+ * push the deadline out. Pure but for the injected timer; unit-tested.
+ */
+export function createWatchdog(view: TimerView, ms: number, onTimeout: () => void): Watchdog {
+  let timer: ReturnType<TimerView['setTimeout']> | null = null;
+  return {
+    arm(): void {
+      if (timer !== null) {
+        return;
+      }
+      timer = view.setTimeout(() => {
+        timer = null;
+        onTimeout();
+      }, ms);
+    },
+    clear(): void {
+      if (timer !== null) {
+        view.clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
 /** The injectable `fetchImpl` shape `MediaTts` accepts (without exporting its internals). */
 type FetchImpl = NonNullable<MediaTtsOptions['fetchImpl']>;
 
@@ -219,11 +258,31 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   fit();
   view.addEventListener('resize', fit);
 
+  // Thinking watchdog: a hung Claude turn (the child wedges and never emits a
+  // `result`) would otherwise leave the avatar stuck in Thinking forever. When a
+  // response is pending (and not yet speaking) the watchdog is armed; if it fires,
+  // drop out of Thinking and surface a message. It is cleared the moment the turn
+  // resolves (speaking/idle) or on dispose.
+  const watchdog = createWatchdog(view, WATCHDOG_MS, () => {
+    if (signals.pendingResponse && !signals.speaking) {
+      console.warn('[tauri-claude] watchdog: no reply in time; recovering from Thinking');
+      safeSetText(options.caption ?? null, 'No response (timed out). Please try again.');
+      signals.pendingResponse = false;
+      sync();
+    }
+  });
+
   const sync = (): void => {
     // While a Claude response is pending (Thinking), suppress the Listening STATE
     // even if the mic is still engaged, so the four-state loop is visible
     // hands-free. The live amplitude still drives the reaction via setMicLevel.
     const micActive = signals.micActive && !signals.pendingResponse;
+    // Arm/disarm the hung-turn watchdog alongside the Thinking state.
+    if (signals.pendingResponse && !signals.speaking) {
+      watchdog.arm();
+    } else {
+      watchdog.clear();
+    }
     controller.setState(deriveState({ ...signals, micActive }));
   };
 
@@ -469,6 +528,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     isClaudeConnected: () => claudeConnected,
     setState: (state) => controller.setState(state),
     dispose: () => {
+      watchdog.clear();
       capture.stop();
       void invoke('stt_stop').catch(() => undefined);
       void invoke('claude_stop').catch(() => undefined);
