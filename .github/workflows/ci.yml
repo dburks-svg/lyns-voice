@@ -14,9 +14,13 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-      - run: npm ci
-      - run: npm run vendor:three
+      # `npm install`, not `npm ci`: the lockfile is generated on Windows, but the
+      # Vite 8 native toolchain (rolldown/oxc -> @napi-rs/wasm-runtime -> @emnapi/*)
+      # resolves a wasm fallback on Linux that Windows never installs, so a
+      # Windows-authored lockfile can't satisfy strict `npm ci` here. `npm install`
+      # reconciles per-platform. (Private personal repo; strict pinning not needed.)
+      - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build:lib
+      - run: npm run build

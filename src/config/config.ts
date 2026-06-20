@@ -8,7 +8,7 @@
  * default to today's behaviour: orb skin, fresnel glow, no bloom, tag-based mood.
  */
 
-export type Skin = 'orb' | 'head';
+export type Skin = 'orb' | 'head' | 'reactor';
 export type GlowMode = 'fresnel' | 'halo' | 'bloom';
 export type MoodSource = 'tag' | 'api' | 'off';
 
@@ -55,7 +55,7 @@ export interface FeatureFlags {
 }
 
 export interface AvatarConfig {
-  /** Which mesh form to render. Default 'head' (the glowing head); 'orb' is the legacy skin. */
+  /** Which mesh form to render. Default 'reactor' (the arc-reactor core); 'head' and 'orb' remain selectable. */
   skin: Skin;
   /** Named palette variant. */
   theme: string;
@@ -76,7 +76,7 @@ export interface AvatarConfig {
 }
 
 export const DEFAULT_CONFIG: AvatarConfig = {
-  skin: 'head',
+  skin: 'reactor',
   theme: 'jarvis',
   mesh: { radius: 1.2, detail: 3 },
   idle: { amplitude: 0.12, frequency: 1.1, speed: 0.5 },

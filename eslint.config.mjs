@@ -8,6 +8,7 @@ export default tseslint.config(
       'dist/**',
       'dist-demo/**',
       'vendor/**',
+      'src/avatar/jarvisOrb/**',
       'node_modules/**',
       'coverage/**',
       'playwright-report/**',

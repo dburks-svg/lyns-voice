@@ -49,8 +49,9 @@ function bootstrap(): void {
   window.addEventListener('resize', () => avatar.resize(root.clientWidth, root.clientHeight));
 
   const skinButton = document.getElementById('skin-toggle');
+  const skinOrder: Skin[] = ['orb', 'head', 'reactor'];
   skinButton?.addEventListener('click', () => {
-    const next: Skin = avatar.skin === 'head' ? 'orb' : 'head';
+    const next: Skin = skinOrder[(skinOrder.indexOf(avatar.skin) + 1) % skinOrder.length];
     void avatar.setSkin(next).then(() => {
       avatar.resize(root.clientWidth, root.clientHeight);
       setStatus(controller.current);

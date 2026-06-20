@@ -1,13 +1,8 @@
 # Vendored third-party assets
 
-These files are committed so the avatar runs 100% locally (no runtime CDN fetch).
-
-## three.min.js, GLTFLoader.js
-
-Three.js r128 (https://threejs.org), MIT License. Copied from the pinned
-`three@0.128.0` npm package by `scripts/vendor-three.mjs`:
-- `three.min.js` from `three/build/three.min.js` (UMD, global `THREE`).
-- `GLTFLoader.js` from `three/examples/js/loaders/GLTFLoader.js` (augments `THREE`).
+`head.glb` is committed so the avatar runs 100% locally (no runtime CDN fetch).
+Three.js is now a normal npm dependency (ESM, bundled by Vite), no longer
+vendored as a UMD global.
 
 ## head.glb
 

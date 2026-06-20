@@ -29,7 +29,6 @@
     "demo",
     "e2e",
     "vite.config.ts",
-    "vite.lib.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"
   ],

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DEFAULT_CONFIG, type Skin } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
 import { loadHeadGeometry, type GLTFLoaderFactory } from './gltf';
+import { buildReactor, type ReactorHandle } from './reactor';
 import {
   AVATAR_FRAGMENT_SHADER,
   AVATAR_VERTEX_SHADER,
@@ -64,6 +65,9 @@ const HALO_GLOW_SCALE = 0.6;
 const REDUCED_MOTION_FACTOR = 0.15;
 
 function defaultAmplitudeScale(skin: Skin): number {
+  if (skin === 'reactor') {
+    return 0; // the reactor animates by rotation/scale, not vertex deformation
+  }
   return skin === 'head' ? HEAD_AMPLITUDE_SCALE : DEFAULT_CONFIG.amplitudeScale;
 }
 
@@ -105,6 +109,9 @@ export class Avatar {
   /** Additive glow shell around the head (transparency-preserving "bloom"). */
   private halo: THREE.Mesh | null = null;
   private haloMaterial: THREE.ShaderMaterial | null = null;
+
+  /** The procedural reactor group (the 'reactor' skin); null for orb/head. */
+  private reactor: ReactorHandle | null = null;
 
   /**
    * Resolves when the requested skin is ready: immediately for the orb, or after
@@ -164,6 +171,7 @@ export class Avatar {
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.scene.add(this.mesh);
     this.syncHalo();
+    this.syncReactor();
 
     // A 'head' skin loads its GLB and atomically adopts it when ready. A load
     // failure keeps the fallback geometry (graceful), so `ready` never rejects.
@@ -184,6 +192,16 @@ export class Avatar {
       uGlow: { value: 1.0 },
       uOpacity: { value: 0.9 },
     };
+    if (skin === 'reactor') {
+      // The carrier mesh is invisible; the reactor group does the rendering. The
+      // uniforms are still carried so setGlow/setColors always have a valid target.
+      return new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: AVATAR_VERTEX_SHADER,
+        fragmentShader: AVATAR_FRAGMENT_SHADER,
+        visible: false,
+      });
+    }
     if (skin === 'head') {
       return new THREE.ShaderMaterial({
         uniforms,
@@ -259,6 +277,28 @@ export class Avatar {
   }
 
   /**
+   * Build or tear down the reactor group to match the current skin. It is parented
+   * to `this.mesh` (like the halo), so the controller's `mesh.rotation`/`mesh.scale`
+   * writes transform the whole reactor and `setColors`/`setGlow` fan out to it.
+   */
+  private syncReactor(): void {
+    const want = this.skin === 'reactor';
+    if (want && !this.reactor) {
+      this.reactor = buildReactor({
+        radius: this.radius,
+        colorA: (this.material.uniforms.uColorA.value as THREE.Color).getHex(),
+        colorB: (this.material.uniforms.uColorB.value as THREE.Color).getHex(),
+      });
+      this.reactor.setGlow(this.material.uniforms.uGlow.value as number);
+      this.mesh.add(this.reactor.group);
+    } else if (!want && this.reactor) {
+      this.mesh.remove(this.reactor.group);
+      this.reactor.dispose();
+      this.reactor = null;
+    }
+  }
+
+  /**
    * Switch skins at runtime (used by the demo toggle). Rebuilds the material and
    * swaps geometry: 'orb' rebuilds the icosahedron; 'head' reloads the GLB.
    * Resolves when the new skin is ready.
@@ -276,10 +316,15 @@ export class Avatar {
     previousMaterial.dispose();
     this.amplitudeScale = defaultAmplitudeScale(next);
     this.syncHalo();
+    this.syncReactor();
     if (next === 'head') {
       return this.loadHead().catch((err: unknown) => {
         console.warn('[avatar] head model failed to load; keeping current geometry', err);
       });
+    }
+    if (next === 'reactor') {
+      // Keep the carrier geometry (now invisible); the reactor group renders.
+      return Promise.resolve();
     }
     this.adoptGeometry(new THREE.IcosahedronGeometry(this.radius, this.detail));
     return Promise.resolve();
@@ -335,6 +380,7 @@ export class Avatar {
     if (this.haloMaterial) {
       this.haloMaterial.uniforms.uGlow.value = value * HALO_GLOW_SCALE;
     }
+    this.reactor?.setGlow(value);
   }
 
   /** Set the rim and core colors (state-driven tint; hex numbers). */
@@ -344,6 +390,7 @@ export class Avatar {
     if (this.haloMaterial) {
       (this.haloMaterial.uniforms.uColorA.value as THREE.Color).set(rim);
     }
+    this.reactor?.setColors(rim, core);
   }
 
   /**
@@ -351,6 +398,9 @@ export class Avatar {
    * With `params.amplitude === 0` the mesh returns to its exact rest shape.
    */
   deform(time: number): void {
+    if (this.skin === 'reactor') {
+      return; // the reactor animates by rotation/scale, not vertex displacement
+    }
     const attribute = this.geometry.attributes.position as THREE.BufferAttribute;
     const arr = attribute.array as Float32Array;
     const rest = this.restPositions;
@@ -375,13 +425,18 @@ export class Avatar {
     if (this.reducedMotion) {
       this.mesh.rotation.y = 0;
     } else {
-      // The orb spins freely; the head sways within a bounded yaw so its face
-      // stays toward the camera (it is the face of Claude Code, not a top).
+      // The orb spins freely; the head and reactor sway within a bounded yaw so
+      // their face stays toward the camera (the reactor's concentric rings read as
+      // an arc-reactor face, with its in-plane ring spin + orbit precession for
+      // motion). It is the face of Claude Code, not a top.
       this.mesh.rotation.y =
-        this.skin === 'head'
-          ? Math.sin(time * this.idleRotationSpeed) * HEAD_SWAY_MAX
-          : time * this.idleRotationSpeed;
+        this.skin === 'orb'
+          ? time * this.idleRotationSpeed
+          : Math.sin(time * this.idleRotationSpeed) * HEAD_SWAY_MAX;
     }
+    this.reactor?.update(time, this.params, this.material.uniforms.uGlow.value as number, {
+      reducedMotion: this.reducedMotion,
+    });
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -418,6 +473,11 @@ export class Avatar {
     this.haloMaterial?.dispose();
     this.halo = null;
     this.haloMaterial = null;
+    if (this.reactor) {
+      this.mesh.remove(this.reactor.group);
+      this.reactor.dispose();
+      this.reactor = null;
+    }
     this.geometry.dispose();
     this.material.dispose();
     this.renderer.dispose();
