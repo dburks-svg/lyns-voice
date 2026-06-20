@@ -57,7 +57,7 @@ describe('Avatar', () => {
 
   it('deforms vertices when breathing and restores rest shape at amplitude 0', () => {
     const { factory } = mockRendererFactory();
-    const avatar = new Avatar({ rendererFactory: factory });
+    const avatar = new Avatar({ rendererFactory: factory, skin: 'orb' });
     const pos = avatar.geometry.attributes.position.array as Float32Array;
     const rest = Float32Array.from(pos);
 

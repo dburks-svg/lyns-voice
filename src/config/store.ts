@@ -27,7 +27,7 @@ export interface StorageLike {
 
 export const STORAGE_KEY = 'jarvis-avatar-config';
 
-const SKINS: readonly Skin[] = ['orb', 'head'];
+const SKINS: readonly Skin[] = ['orb', 'head', 'reactor'];
 const GLOW_MODES: readonly GlowMode[] = ['fresnel', 'halo', 'bloom'];
 const MOOD_SOURCES: readonly MoodSource[] = ['tag', 'api', 'off'];
 const MAX_STRING = 256;

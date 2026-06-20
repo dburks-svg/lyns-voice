@@ -88,3 +88,54 @@ export const HALO_FRAGMENT_SHADER = /* glsl */ `
     gl_FragColor = vec4(uColorA * uGlow * fresnel, 1.0);
   }
 `;
+
+/**
+ * Reactor rings/orbits material (the 'reactor' skin): additive neon fresnel,
+ * brighter and more edge-biased than the orb so thin tori read as glowing arcs.
+ * Shares the uColorA/uColorB/uGlow/uOpacity contract, so the controller's
+ * setColors/setGlow drive it identically to the other skins.
+ */
+export const REACTOR_FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+
+  uniform vec3 uColorA; // neon rim
+  uniform vec3 uColorB; // deep core
+  uniform float uGlow;  // emissive intensity, driven by avatar state
+  uniform float uOpacity;
+
+  varying vec3 vNormal;
+  varying vec3 vView;
+
+  void main() {
+    float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vView)), 0.0), 1.6);
+    // Bias toward the rim color even head-on so the whole ring glows, brightest
+    // at grazing angles.
+    vec3 color = mix(uColorB, uColorA, 0.35 + 0.65 * fresnel);
+    gl_FragColor = vec4(color * uGlow, uOpacity);
+  }
+`;
+
+/**
+ * Reactor core material: an intense additive "white-hot" center that flares on
+ * speaking impulses purely through additive overdraw (no post-process bloom, so
+ * the canvas stays transparent, same constraint that drove the halo). Uses
+ * uColorA as the base and burns toward white toward the camera.
+ */
+export const REACTOR_CORE_FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+
+  uniform vec3 uColorA; // bright base
+  uniform vec3 uColorB; // (carried for the setColors contract; unused here)
+  uniform float uGlow;  // emissive intensity, driven by avatar state
+  uniform float uOpacity;
+
+  varying vec3 vNormal;
+  varying vec3 vView;
+
+  void main() {
+    float facing = max(dot(normalize(vNormal), normalize(vView)), 0.0);
+    float hot = pow(facing, 1.5);
+    vec3 color = mix(uColorA, vec3(1.0), 0.5 * hot);
+    gl_FragColor = vec4(color * uGlow * 1.8, 1.0);
+  }
+`;
