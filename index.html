@@ -6,6 +6,7 @@
     <title>Q</title>
     <link rel="stylesheet" href="/src/app/shell.css" />
     <link rel="stylesheet" href="/src/app/terminal/terminal.css" />
+    <link rel="stylesheet" href="/src/app/diff/diff.css" />
   </head>
   <body class="q-app">
     <!-- Full-window holographic orb: a transparent WebGL canvas mounts here and
@@ -21,6 +22,13 @@
       <span class="ss-item"><span class="ss-label">UP</span> <span id="hud-uptime">0:00</span></span>
       <span class="ss-divider"></span>
       <span class="ss-item ss-activity"><span class="ss-label">ACT</span> <span id="hud-activity">idle</span></span>
+      <span class="ss-divider"></span>
+      <span class="ss-item ss-ci" title="CI status">
+        <span class="ss-label">CI</span>
+        <span class="ci-dot ci-green" id="ci-green"></span>
+        <span class="ci-dot ci-yellow" id="ci-yellow"></span>
+        <span class="ci-dot ci-red" id="ci-red"></span>
+      </span>
     </div>
 
     <!-- Top HUD bar: minimal controls, always visible. -->
@@ -40,6 +48,7 @@
         </svg>
       </button>
       <button id="terminal-btn">+ terminal</button>
+      <button id="diff-btn">diffs</button>
     </div>
 
     <!-- Settings drawer: slides down from the HUD bar. -->
@@ -155,6 +164,9 @@
 
     <!-- Terminal layer: floating draggable/resizable terminal windows -->
     <div id="terminal-layer" class="terminal-layer"></div>
+
+    <!-- Diff viewer layer: floating panel showing file diffs from Claude -->
+    <div id="diff-layer" class="terminal-layer"></div>
 
     <!-- Spoken reply caption: keeps replies READABLE even when audio is off.
          Mood markers are stripped before they reach here. -->

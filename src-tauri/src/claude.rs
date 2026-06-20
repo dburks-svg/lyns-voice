@@ -64,6 +64,16 @@ struct Activity {
     target: String,
 }
 
+/// File diff from an Edit or Write tool (drives the diff viewer panel).
+#[derive(Clone, Serialize)]
+struct ToolDiff {
+    tool: String,
+    file_path: String,
+    old_string: Option<String>,
+    new_string: Option<String>,
+    content: Option<String>,
+}
+
 /// Per-turn token usage + cost from the `result` event (drives the HUD telemetry).
 #[derive(Clone, Serialize)]
 struct Usage {
@@ -351,8 +361,43 @@ fn emit_tool_activity(app: &AppHandle, v: &Value) {
             .unwrap_or("tool")
             .to_string();
         let target = tool_target(&name, item.get("input"));
-        let _ = app.emit("claude://activity", Activity { name, target });
+        let _ = app.emit("claude://activity", Activity { name: name.clone(), target });
+        emit_tool_diff(app, &name, item.get("input"));
     }
+}
+
+/// Emit `claude://diff` for Edit/Write tools so the diff viewer panel can show changes.
+fn emit_tool_diff(app: &AppHandle, name: &str, input: Option<&Value>) {
+    let input = match input {
+        Some(i) => i,
+        None => return,
+    };
+    let file_path = input
+        .get("file_path")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if file_path.is_empty() {
+        return;
+    }
+    let diff = match name {
+        "Edit" | "MultiEdit" => ToolDiff {
+            tool: name.to_string(),
+            file_path,
+            old_string: input.get("old_string").and_then(Value::as_str).map(String::from),
+            new_string: input.get("new_string").and_then(Value::as_str).map(String::from),
+            content: None,
+        },
+        "Write" => ToolDiff {
+            tool: name.to_string(),
+            file_path,
+            old_string: None,
+            new_string: None,
+            content: input.get("content").and_then(Value::as_str).map(String::from),
+        },
+        _ => return,
+    };
+    let _ = app.emit("claude://diff", diff);
 }
 
 /// Pick a human-meaningful target from a tool's input (path, command, pattern, ...).

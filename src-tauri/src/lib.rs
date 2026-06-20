@@ -1,3 +1,4 @@
+mod ci;
 mod claude;
 mod stt;
 mod terminal;
@@ -33,7 +34,8 @@ pub fn run() {
       terminal::terminal_spawn,
       terminal::terminal_write,
       terminal::terminal_kill,
-      terminal::terminal_resize
+      terminal::terminal_resize,
+      ci::ci_status
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

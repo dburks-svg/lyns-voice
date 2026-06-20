@@ -1,0 +1,153 @@
+/* =====================================================================
+   Diff viewer: floating glass panel matching the FUI aesthetic.
+   Same z-index layer as terminal windows.
+   ===================================================================== */
+
+.diff-window {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+
+  background: var(--glass);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  clip-path: var(--notch);
+  box-shadow:
+    0 0 26px rgba(0, 240, 255, 0.07),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+
+  min-width: 300px;
+  min-height: 200px;
+  border-radius: 0;
+}
+
+.diff-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-faint) 70%);
+  clip-path: var(--notch);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.diff-window > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- Title bar: drag handle ---- */
+.diff-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--accent-faint);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.diff-titlebar:active {
+  cursor: grabbing;
+}
+
+.diff-title {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.diff-clear,
+.diff-close {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.diff-clear:hover,
+.diff-close:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+.diff-close {
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* ---- Diff content ---- */
+.diff-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-soft) transparent;
+}
+.diff-body::-webkit-scrollbar {
+  width: 5px;
+}
+.diff-body::-webkit-scrollbar-thumb {
+  background: var(--accent-faint);
+  border-radius: 3px;
+}
+
+.diff-section {
+  margin-bottom: 10px;
+}
+.diff-section:last-child {
+  margin-bottom: 0;
+}
+
+.diff-file-header {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  padding: 3px 6px;
+  margin-bottom: 2px;
+  background: rgba(0, 240, 255, 0.04);
+  border-left: 2px solid var(--accent-soft);
+  text-shadow: 0 0 6px var(--accent-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-block {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
+.diff-line {
+  padding: 0 6px;
+  white-space: pre;
+}
+
+.diff-del {
+  color: #ff8a9e;
+  background: rgba(255, 90, 122, 0.08);
+}
+
+.diff-add {
+  color: #7affaa;
+  background: rgba(56, 255, 148, 0.08);
+}

@@ -105,6 +105,31 @@ body[data-state="speaking"] {
   white-space: nowrap;
 }
 
+/* CI status dots: traffic-light indicator in the session strip */
+.ss-ci {
+  gap: 4px;
+}
+.ci-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(100, 100, 100, 0.3);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+.ci-dot.active.ci-green {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+.ci-dot.active.ci-yellow {
+  background: #eab308;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.6);
+}
+.ci-dot.active.ci-red {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
 /* ---------------------------------------------------------------------
    Top HUD: the (still fully functional) control cluster, restyled as a
    thin neon bar so it blends with the FUI instead of clashing.

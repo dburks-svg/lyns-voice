@@ -44,6 +44,15 @@ export interface ClaudeActivity {
   target: string;
 }
 
+/** A file diff from an Edit or Write tool (from `claude://diff`); feeds the diff viewer. */
+export interface ClaudeDiff {
+  tool: string;
+  file_path: string;
+  old_string?: string;
+  new_string?: string;
+  content?: string;
+}
+
 /** Per-turn token usage + cost (from `claude://usage`); feeds the HUD telemetry. */
 export interface ClaudeUsage {
   input_tokens: number;
@@ -196,6 +205,8 @@ export interface TauriAdapterOptions {
   onTranscript?: (role: TranscriptRole, text: string) => void;
   /** Each tool Claude invokes this turn (HUD activity feed). */
   onActivity?: (activity: ClaudeActivity) => void;
+  /** File diff from Edit/Write tools (diff viewer panel). */
+  onDiff?: (diff: ClaudeDiff) => void;
   /** Per-turn token usage + cost (HUD telemetry). */
   onUsage?: (usage: ClaudeUsage) => void;
   /** Live mic frequency bands per audio frame (HUD waveform). */
@@ -489,6 +500,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   });
   // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
   addListener<ClaudeActivity>('claude://activity', (p) => options.onActivity?.(p));
+  addListener<ClaudeDiff>('claude://diff', (p) => options.onDiff?.(p));
   addListener<ClaudeUsage>('claude://usage', (p) => options.onUsage?.(p));
   addListener<{ text: string; is_error: boolean }>('claude://turn-end', (p) => {
     const text = (p.text ?? '').trim();

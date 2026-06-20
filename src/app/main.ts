@@ -4,6 +4,7 @@ import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
+import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 
 /**
@@ -54,6 +55,13 @@ async function bootstrap(): Promise<void> {
     caption: document.getElementById('caption'),
     onTranscript: (role, text) => panels.addTranscript(role, text),
     onActivity: (a) => panels.addActivity(a.name, a.target),
+    onDiff: (d) => addDiffEntry({
+      tool: d.tool,
+      filePath: d.file_path,
+      oldString: d.old_string,
+      newString: d.new_string,
+      content: d.content,
+    }),
     onUsage: (u) => panels.addUsage(u),
     onBands: (bands) => panels.pushBands(bands),
     ttsSettings: () => ({
@@ -183,6 +191,77 @@ async function bootstrap(): Promise<void> {
       void termMgr.spawn(getCwd());
     });
   }
+
+  // CI status dots: poll GitHub Actions via `gh run list` every 30s.
+  const ciGreen = document.getElementById('ci-green');
+  const ciYellow = document.getElementById('ci-yellow');
+  const ciRed = document.getElementById('ci-red');
+  if (tauriGlobal && ciGreen && ciYellow && ciRed) {
+    const tauri = tauriGlobal as {
+      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    };
+    const pollCi = (): void => {
+      void tauri.invoke('ci_status').then((result) => {
+        const { state } = result as { state: string };
+        ciGreen.classList.toggle('active', state === 'green');
+        ciYellow.classList.toggle('active', state === 'yellow');
+        ciRed.classList.toggle('active', state === 'red');
+      }).catch(() => {
+        ciGreen.classList.remove('active');
+        ciYellow.classList.remove('active');
+        ciRed.classList.remove('active');
+      });
+    };
+    pollCi();
+    setInterval(pollCi, 30_000);
+  }
+
+  // Diff viewer: a floating panel showing file diffs from Claude's Edit/Write tools.
+  const diffLayer = document.getElementById('diff-layer');
+  const diffBtn = document.getElementById('diff-btn');
+  let diffPanel: DiffPanel | null = null;
+  const pendingDiffs: DiffEntry[] = [];
+
+  function ensureDiffPanel(): DiffPanel {
+    if (diffPanel) return diffPanel;
+    const vw = window.innerWidth;
+    const panel = new DiffPanel({
+      x: Math.max(60, vw - 660),
+      y: 80,
+      onFocus: () => {
+        if (panel.el.style.zIndex !== '10') panel.el.style.zIndex = '10';
+      },
+      onClose: () => {
+        diffPanel?.destroy();
+        diffPanel = null;
+        diffBtn?.classList.remove('active');
+      },
+    });
+    diffLayer?.appendChild(panel.el);
+    diffPanel = panel;
+    for (const d of pendingDiffs) panel.addDiff(d);
+    pendingDiffs.length = 0;
+    return panel;
+  }
+
+  function addDiffEntry(entry: DiffEntry): void {
+    if (diffPanel) {
+      diffPanel.addDiff(entry);
+    } else {
+      pendingDiffs.push(entry);
+    }
+  }
+
+  diffBtn?.addEventListener('click', () => {
+    if (diffPanel) {
+      diffPanel.destroy();
+      diffPanel = null;
+      diffBtn.classList.remove('active');
+    } else {
+      ensureDiffPanel();
+      diffBtn.classList.add('active');
+    }
+  });
 
   // Make telemetry panels draggable and resizable. Restore saved positions
   // from localStorage if available; otherwise snapshot from the grid layout.
