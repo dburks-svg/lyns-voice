@@ -1,270 +1,150 @@
-# CLAUDE.md - Jarvis Avatar Project Guide
+# CLAUDE.md - Jarvis (Tauri desktop app)
 
-Real-time 3D neon-blue "Jarvis" avatar overlay (Three.js) for the `mcp-voice-hooks`
-browser UI. The avatar pulses while idle, reacts to the microphone while listening,
-spins/pulses while Claude is thinking, and deforms to speech cadence while Claude
-replies. Everything runs 100% locally (browser-native Web Speech API, zero extra
-API cost).
-
-## ALWAYS: stay aligned with the spec
-
-`AVATAR_SPEC.md` (repo root) is the source of truth. **On every session start, and
-again after any context compaction/summary, re-read `AVATAR_SPEC.md` before
-continuing** so the work never drifts from the original architecture, the four
-phases, and the four behavioral states (Idle / Listening / Thinking / Speaking).
-Do not edit `AVATAR_SPEC.md`.
+A standalone **Tauri v2 desktop app** that is the voice and face of Claude Code: a
+holographic orb on a futuristic HUD that listens (local Whisper STT), thinks while the
+`claude` CLI works, and speaks the reply (native Windows SAPI TTS), with four live
+telemetry panels. Windows is the primary platform; speech runs 100% locally. This repo
+was migrated from a browser overlay injected into `mcp-voice-hooks`; that era is retired
+(see git history / `master` if you need it).
 
 ## Working agreement (how this project is built)
 
-- **Answer open questions as the Senior Engineer.** The owner has delegated
-  implementation decisions. Make the call, record the rationale here, and proceed.
-- **Clean code, security first, tests baked in as you build** (not bolted on later).
-- **Phased delivery with commits between phases.** Build a phase fully (code +
-  tests green), commit it, then begin the next phase. Four phases total.
-- **Final phase opens the local browser** so the owner can test the avatar live.
-- **No em dashes or en dashes** in any generated content (use hyphens, commas,
-  colons, parentheses).
+- **Answer open implementation questions as the senior engineer.** Make the call, record
+  the rationale here, and proceed.
+- **Clean code, security first, tests baked in as you build** (not bolted on after).
+- **Phased delivery with a green gate between phases.** Build a phase fully (code + tests
+  green), commit it, then begin the next.
+- **No em dashes or en dashes** in any generated content (use hyphens, commas, colons,
+  parentheses). Scan before delivering.
+- The owner flagged that open-ended visual trial-and-error burns tokens: tune visuals
+  against a concrete target, one knob per turn.
 
-## Phase status: COMPLETE (all four phases built, audited, tested)
+## The four behavioral states (the contract that never changes)
 
-- [x] Phase 1 - Scaffold, vendored Three.js, idempotent injector, demo harness, this file.
-- [x] Phase 2 - Neon-blue pulsing icosahedron with simplex-noise idle breathing.
-- [x] Phase 3 - Four-state controller, mic-driven listening, boundary-driven speaking, voice-hooks adapter.
-- [x] Phase 4 - Dark neon UI, responsive floating panel, per-state colors, final multi-agent
-      security+completeness audit (findings fixed), Playwright e2e smoke, open browser.
+Idle, Listening, Thinking, Speaking, derived from voice signals with a fixed priority
+(speaking > listening > thinking > idle). The seam is small, pure, and host-neutral:
 
-Gate: 65 unit tests + 1 e2e smoke pass; lint + typecheck clean; npm audit clean.
+```
+VoiceSignals { micActive, speaking, pendingResponse } -> deriveState() -> AvatarController
+```
 
-## v0.4.0 upgrade: glowing head + mood (COMPLETE)
+(`src/integration/signals.ts`). Any renderer that implements the `ControllableAvatar`
+interface (`src/avatar/AvatarController.ts`) is driven by the controller unchanged. The live
+app's renderer is `JarvisOrbAvatar` (the vendored Three.js orb); the demo keeps the legacy
+`Avatar`/`reactor`/`head` renderers. `AVATAR_SPEC.md` defines the four states' intent and is
+the behavioral source of truth; the rest of that spec predates the Tauri migration. Do not
+edit `AVATAR_SPEC.md`.
 
-The avatar evolved from the abstract orb into a solid glowing humanoid HEAD that
-is the voice and face of Claude Code, plus a mood layer. Built in phases (each
-committed with a green gate) on branch `feat/glowing-head-mood-avatar`:
+## Status: voice loop complete (Phases 0-4), shipped as a desktop app
 
-- Central config substrate (`src/config/`): all knobs (skin, palette, mood
-  source, feature flags) with safe localStorage persistence; the API key is
-  never stored, only an `apiKeyPresent` flag.
-- Head pipeline: vendored `GLTFLoader.js` + `vendor/head.glb` (Lee Perry-Smith,
-  CC-BY 3.0, swappable via `headUrl`; see vendor/NOTICE.md). `Avatar` loads the
-  GLB with a fallback-then-swap lifecycle (orb shows instantly, head adopts
-  atomically), a solid fresnel head shader (NormalBlending, depthWrite), a
-  bounded forward-facing sway, and `setSkin()` to switch head/orb at runtime.
-- Mood layer (`src/mood/`): the `<<mood:NAME>>` tag (see "Mood tags" below)
-  tints color/glow on top of the four activity states; neutral is pass-through
-  (zero regression). Verified the head renders correctly (Playwright element
-  screenshot): a glowing blue bust with a bright fresnel rim on a dark stage.
-- Richer reactivity: FFT frequency bands drive a livelier Listening reaction.
-  Bloom is gated behind Spike A (browser-only) and OFF by default; the default
-  glow (fresnel + CSS drop-shadow) already matches the reference (docs/spikes.md).
-- Dominant view: the host overlay is a full-window background layer with the head
-  centered; the adapter resizes the canvas to the window.
-
-Gate: lint + typecheck clean; 118 unit tests + the e2e smoke pass; bundle builds;
-injector round-trip verified (inject copies GLTFLoader.js + head.glb, revert
-restores the original byte-for-byte).
-
-## v0.4.1: "Jarvis only" takeover (host view)
-
-The injected host now renders as a full-screen avatar. `integration/takeover.ts`
-hides the mcp-voice-hooks Messenger chrome (kept in the DOM and functional, NOT
-removed), shows the head full-window, renders the latest assistant reply as a
-large caption (so replies are READABLE even when TTS audio is off), and adds one
-tap-to-talk control that proxies the real `#micBtn` (all host recognition /
-auto-send logic is reused). A top-right cluster holds a gear and a mode toggle:
-the gear opens the host's Voice Settings as a floating dark panel layered over
-the avatar (it un-hides the `.settings-toggle` subtree and forces
-`#settingsContent` open), so the voice/voice-responses can be changed without
-leaving the view; the toggle flips between "Jarvis only" and "Classic UI" and
-remembers the choice in localStorage (`jarvisTakeover`, default on), so the user
-is never trapped. `attachToVoiceHooks` takes a third
-`{ takeover }` option; `bundle.ts` passes `takeover: true` on the host, so the
-demo and unit tests (which omit it) are unaffected. The dark stage CSS is now
-scoped to `body.jarvis-demo` / `body.jarvis-takeover`, so a non-takeover host
-keeps the voice UI's own light theme (this fixes the earlier "old UI bleeding
-through" clash). Gate: lint + typecheck clean; 138 unit tests pass; live
-`localhost:5111` screenshot verified.
+- **Phase 0** mount; **Phase 1** native SAPI TTS; **Phase 2** local Whisper STT + VAD
+  auto-send-on-pause; **Phase 3** Claude Code stream-json bridge (the full hands-free loop);
+  **Phase 4** security (dontAsk allowlist + Thinking watchdog + strict CSP), deferred tests.
+- **FUI overhaul:** the vendored MIT Three.js Jarvis orb centerpiece (full-window) + the
+  three-column tactical HUD + four live telemetry panels (transcript / activity / session
+  tokens+cost / mic waveform); mood-driven palette (idle navy, active blue).
+- **Packaging:** unsigned per-user NSIS build. Private, personal, zero-cost tool, so signing
+  and the auto-updater are intentionally dropped.
 
 ## Commands
 
 | Task | Command |
 | --- | --- |
 | Install deps | `npm install` |
-| Vendor Three.js into `vendor/` | `npm run vendor:three` |
-| Dev server + demo (opens `/demo/`) | `npm run dev` |
-| Build injectable bundle (`dist/avatar.js`) | `npm run build:lib` |
-| Type-check | `npm run typecheck` |
-| Lint | `npm run lint` |
+| Dev: native window + full voice loop | `LIBCLANG_PATH="C:/Program Files/LLVM/bin" npm run tauri dev` |
+| Build: unsigned installer + `app.exe` | `LIBCLANG_PATH="C:/Program Files/LLVM/bin" npm run tauri build` |
+| Host-free demo (browser) | `npm run dev` (opens `/demo/`) |
 | Unit tests | `npm test` |
-| E2E smoke (installs Chromium first) | `npm run e2e:install` then `npm run test:e2e` |
-| Inject into mcp-voice-hooks | `npm run inject -- --path <index.html>` |
-| Revert injection | `npm run inject:revert -- --path <index.html>` |
+| E2E (installs Chromium first) | `npm run e2e:install` then `npm run test:e2e` |
+| Lint / type-check | `npm run lint` / `npm run typecheck` |
+| Rust backend tests | `cd src-tauri && LIBCLANG_PATH=... cargo test` |
 
-Pre-ship gate (run before each commit): `npm run lint && npm run typecheck && npm test`.
+Pre-ship gate (before each commit): `npm run lint && npm run typecheck && npm test`. CI
+(`.github/workflows/ci.yml`) additionally runs `npm ci` + `npm run build` on Linux, so keep
+`package-lock.json` in sync (regenerate with `npm install` if `npm ci` complains). Build
+prerequisites: Node 20+, a Rust toolchain, LLVM/libclang (`LIBCLANG_PATH`) for `whisper-rs`;
+the release `target-dir` is redirected to `%LOCALAPPDATA%` via a gitignored `.cargo/config.toml`
+(a BitDefender build-script workaround).
 
 ## Architecture
 
 ```
 src/
-  index.ts                  Public API barrel -> global `JarvisAvatar` (IIFE) + ESM for the demo
-  avatar/Avatar.ts          Renderer/scene/camera/mesh/loop/resize/dispose (Phase 2)
-  avatar/noise.ts           Simplex noise, pure + tested (Phase 2)
-  avatar/deformation.ts     Vertex displacement math, pure + tested (Phase 2)
-  avatar/shaders.ts         GLSL neon wireframe + fresnel glow (Phase 2)
-  avatar/AvatarController.ts  idle|listening|thinking|speaking state machine (Phase 3)
-  audio/MicAnalyser.ts      getUserMedia -> AnalyserNode -> amplitude, Listening (Phase 3)
-  audio/SpeechReactor.ts    onboundary impulses + envelope, Speaking (Phase 3)
-  integration/voiceHooksAdapter.ts  Observes mcp-voice-hooks signals -> controller (Phase 3)
-demo/                       Standalone four-state harness (primary dev/test/demo surface)
-scripts/inject.mjs          Idempotent, reversible injector CLI (HTML + assets + server route)
-scripts/injector-core.mjs   Pure string transforms for the HTML injector (unit-tested)
-scripts/server-patch-core.mjs  Pure transforms for the server tts-wav route patch (unit-tested)
-vendor/three.min.js         Vendored Three.js r128 UMD (global THREE), committed
+  app/                  Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html (root)
+  avatar/
+    JarvisOrbAvatar.ts  Adapter: drives the vendored orb through the ControllableAvatar seam
+    jarvisOrb/          Vendored MIT Three.js orb (renderer.ts + states.ts; keep its LICENSE)
+    AvatarController.ts idle|listening|thinking|speaking state machine (+ mood, FFT bands)
+    Avatar.ts, reactor.ts, shaders.ts, gltf.ts, noise.ts, deformation.ts  (demo renderers)
+  audio/                MediaTts (WAV playback + amplitude), SttCapture, MicAnalyser, bands
+  integration/
+    tauriAdapter.ts     attachTauri: Tauri events -> signals -> controller; TTS/STT/Claude + watchdog
+    telemetry.ts        The four live HUD panels (transcript / activity / session / waveform)
+    signals.ts          Pure VoiceSignals -> deriveState
+  mood/                 mood tag parser, color blend, MoodController
+  config/               AvatarConfig + safe localStorage store
+demo/                   Host-free harness (legacy Three.js reactor/head + all four states)
+
+src-tauri/              Rust backend
+  src/tts.rs            Native Windows SAPI synth -> in-memory WAV (no PowerShell child)
+  src/stt.rs            Mic frames -> webrtc-vad endpointing -> whisper-rs transcription
+  src/claude.rs         The claude CLI stream-json sidecar + NDJSON event parsing
+  tauri.conf.json       Window, strict CSP, NSIS bundle
 ```
 
-**Build model:** TypeScript source. The demo imports `src` directly through Vite
-for fast iteration. The injectable artifact is a global IIFE (`dist/avatar.js`)
-built by `vite.lib.config.ts` with `three` external and bound to the global
-`THREE` from `vendor/three.min.js`. Same Three.js version (r128) at dev, test, and
-runtime.
+## The voice loop (where to look)
 
-## Key decisions and deviations from the literal spec (with rationale)
+- **TTS** (`tts.rs`): `tts_synthesize` renders a mood-stripped line to a WAV buffer via native
+  SAPI in-process (no `powershell.exe`), returned as bytes and played through the EXISTING
+  `MediaTts`, so the real audio amplitude drives the Speaking animation.
+- **STT** (`stt.rs`): the webview pushes 16 kHz Int16 frames; a worker runs `webrtc-vad`
+  endpointing then `whisper-rs` on a pause and emits `stt://final`. The model downloads once to
+  `app_data_dir` on first run.
+- **Claude bridge** (`claude.rs`): a long-lived `claude --print --input-format stream-json
+  --output-format stream-json --verbose` child; `handle_event` parses NDJSON into `claude://*`
+  events (`thinking`, `turn-end`, plus `activity` from `tool_use` and `usage` from `result`,
+  which feed the HUD). A monotonic generation guard makes a superseded session inert.
+- **Frontend seam** (`tauriAdapter.ts`): the only substantial glue. It wires the events to the
+  controller + `telemetry.ts`, owns the speech queue, the turn-taking guards, and the Thinking
+  watchdog, and injects the renderer via `avatarFactory` (default `JarvisOrbAvatar`).
 
-1. **Repo-owned source + idempotent injector** instead of hand-editing installed
-   package files. Editing `node_modules` is brittle (wiped on update) and
-   untestable. The injector backs up the original, inserts marked `<script>` tags,
-   is idempotent (safe to re-run), and reversible (`--revert`).
-2. **Vendored Three.js (no runtime CDN).** Security-first and offline-capable;
-   matches the "100% local" requirement. The spec's CDN tag is a documented
-   fallback only.
-3. **Listening uses a real mic `AnalyserNode`; Speaking uses `onboundary`
-   word-impulses + a synthetic envelope.** Browser `speechSynthesis` output cannot
-   be routed into an `AnalyserNode`/`MediaStream`, so the spec's "AudioContext
-   capture of TTS output" is infeasible for Web Speech synthesis. Mic analysis IS
-   feasible and drives Listening; word-boundary events drive Speaking, with a
-   time-based envelope fallback for voices that do not emit boundary events.
-4. **No unattended install of `mcp-voice-hooks` and no edits to the user's MCP
-   config.** That is a separately-approved step (see below).
+## Security
 
-## Security rules
+- The `claude` child runs `--permission-mode dontAsk` plus an explicit `--allowedTools`
+  allowlist and a `--disallowedTools` denylist (the `ALLOWED_TOOLS` / `DISALLOWED_TOOLS`
+  consts in `claude.rs` - tune them there). It is **never** `bypassPermissions`: anything off
+  the allowlist is denied, and the Activity panel shows every tool as it runs. The chosen
+  project directory is the intended blast radius (defense-in-depth, not an OS sandbox). A true
+  per-tool interactive confirm awaits Claude Code's (currently undocumented)
+  `--permission-prompt-tool` protocol.
+- Strict **CSP** in `tauri.conf.json` (no remote origins; the only egress is the `claude` child
+  and the checksummed model download done in Rust). A **Thinking watchdog** recovers the UI if a
+  turn hangs.
+- `getUserMedia` is audio-only, least-privilege, cancellation-safe; the `<<mood:...>>` parser is
+  bounded; all rendered text uses `textContent` (never `innerHTML`). No API key is stored (the
+  app uses the user's existing `claude` login). Keep `npm audit` clean.
 
-- Vendored dependencies only; no runtime CDN/remote fetch from avatar code; no `eval`.
-- Injector: validate the path (reject null bytes / non-`index.html` / symlinks),
-  sentinel-verify the target is really an mcp-voice-hooks page, back up before writing,
-  idempotent, reversible. Copied assets back up any pre-existing host file of the same
-  name and are removed/restored on `--revert` (full reversibility).
-- `getUserMedia` requested on a user gesture, least privilege, tracks stopped when
-  not listening; `start()` is cancellation-safe so a `stop()` during the permission
-  prompt cannot leak the mic; graceful fallback if permission is denied.
-- Speech-synthesis and SpeechRecognition patches restore only if we still own the
-  slot (never clobber a patcher installed after us) and refuse to double-wrap.
-- Any transcript/user text rendered to the DOM uses `textContent`, never `innerHTML`.
-- Dev server binds to `127.0.0.1` only.
-- Keep the toolchain free of known vulnerabilities (`npm audit` clean).
+## Mood tags (the orb's emotion)
 
-## Audit (Phase 4)
-
-A four-lens adversarial audit (security / spec-completeness / correctness / coverage)
-ran before the final commit. All HIGH/MEDIUM findings were fixed: build now emits
-`dist/avatar.css` (host overlay was unstyled); the `MicAnalyser` start/stop race is
-closed; the injector rejects symlinks and backs up/restores copied assets; the
-speech-recognition/synthesis patches restore conditionally; and idle now shifts to the
-spec's dark navy/slate spectrum. Regression tests were added for each fix.
-
-## Mood tags (the avatar's emotion)
-
-The head changes color/glow by mood. The mood comes from a tiny marker the Claude
-session emits at the very start of a spoken reply:
+The orb changes color by mood from a marker the Claude session emits at the very start of a
+spoken reply:
 
 ```
 <<mood:NAME>>
 ```
 
-`NAME` is one of: `neutral`, `focused`, `happy`, `concerned`, `error`, `curious`.
-The avatar reads the mood and ALWAYS strips every `<<mood:...>>` marker before TTS
-speaks it and before it shows in the transcript, so it is never heard or seen. No
-tag at all keeps the avatar `neutral` (zero regression). The parser is tolerant
-(case-insensitive, anywhere in the text) so a stray tag is silently removed, never
-spoken.
+`NAME` is one of `neutral`, `focused`, `happy`, `concerned`, `error`, `curious`. The marker is
+**always stripped** before TTS speaks it and before it shows in the caption, so it is never
+heard or seen. No tag keeps the orb `neutral` (zero regression); the parser is tolerant
+(case-insensitive, anywhere in the text). Convention for a voice session: begin spoken replies
+with the `<<mood:NAME>>` that fits (`happy` on success, `concerned`/`error` on problems,
+`focused` while working).
 
-Convention for the voice session: begin spoken replies with `<<mood:NAME>>` and
-nothing else on that marker, choosing the mood that fits (for example
-`<<mood:happy>>` on success, `<<mood:concerned>>`/`<<mood:error>>` on problems,
-`<<mood:focused>>` while working). Parsing is local and free (it runs off the same
-Claude session), with an optional API-key tone-analysis path deferred to a later
-phase. Platform note: the marker is stripped on the BROWSER-voice path (Windows
-default) and in the transcript; the macOS `system` voice path bypasses the browser
-and is not stripped, so use the browser voice when you want the mood feature.
+## Reuse, do not reinvent
 
-## Live mcp-voice-hooks integration (DONE)
-
-This machine (user `Designer`): `mcp-voice-hooks` is installed at
-`C:\Users\Designer\AppData\Roaming\npm\node_modules\mcp-voice-hooks`. The v0.4.0
-glowing-head + mood build was re-injected there (`npm run build:lib` then
-`npm run inject`, auto-discovered via `%APPDATA%`); the head GLB, GLTFLoader, and
-mood are live in `public/index.html`. To remove it: `npm run inject:revert`. The
-original notes below are from the earlier `mstar` machine and describe the same
-flow.
-
-`mcp-voice-hooks` v1.0.40 is installed and the avatar overlays its real Voice Mode UI.
-What was wired up (2026-06-19):
-
-- Installed globally: `C:\Users\mstar\AppData\Roaming\npm\node_modules\mcp-voice-hooks`
-  (server entry `dist/unified-server.js`, serves `public/index.html` on
-  `http://localhost:5111`).
-- Avatar injected into its `public/index.html` (idempotent block + copied
-  `avatar.js` / `avatar.css` / `three.min.js`; original saved as
-  `index.html.avatar-backup`). Verified live: the neon orb floats top-right of the
-  conversation area (screenshot at `test-results/voice-hooks-injected.png`).
-- Voice hooks installed for this project (`.claude/settings.local.json`, gitignored).
-- MCP server registered for project `D:\AI Entity` as `voice-hooks`
-  (`claude mcp add voice-hooks -- node <...>\mcp-voice-hooks\bin\cli.js`), pointed at
-  the injected global copy so the avatar is what Claude Code serves. `claude mcp list`
-  reports it Connected.
-
-### Use it (after a Claude Code restart)
-
-1. Restart Claude Code in `D:\AI Entity` (run `claude`). The `voice-hooks` MCP server
-   starts and opens `http://localhost:5111` (the injected UI) after ~3s.
-2. Use **Chrome** (browser speech recognition); enable voice responses for TTS.
-3. Click **Start Listening** and speak; send one CLI message to begin the conversation.
-   The avatar breathes (idle), compresses to your voice (listening), pulses while Claude
-   works (thinking), and reacts to word boundaries while Claude speaks.
-
-### Windows TTS: the server `/api/tts-wav` route
-
-On the Windows host the browser speech engine never reaches the speakers (Windows
-SAPI audio routing is broken there) while normal media audio plays fine. The fix
-bypasses the browser engine: the client (`src/audio/MediaTts.ts`, wired by the
-adapter when `mediaSpeak` is on) POSTs each mood-stripped utterance to
-`POST /api/tts-wav`, which synthesizes a WAV via PowerShell `System.Speech` and is
-played through Web Audio (the path that works); it falls back to native
-`speechSynthesis` if the route declines, so macOS is unaffected. The selected voice
-must stay a *browser* voice (Microsoft David), not "system".
-
-That route is NOT in the stock `mcp-voice-hooks` build, so `npm run inject` now also
-patches it into `dist/unified-server.js` (self-contained block, marker-delimited,
-anchored before `app.listen(`, pristine server saved to
-`unified-server.js.avatar-server-backup`). The patch is idempotent and removed by
-`inject:revert`, so it survives package updates: just re-inject. The route takes
-effect only after the MCP server process restarts (restart Claude Code).
-
-### Maintain / undo
-
-- Re-inject after a package update: `npm run build:lib` then
-  `npm run inject -- --path "C:\Users\mstar\AppData\Roaming\npm\node_modules\mcp-voice-hooks\public\index.html"`.
-  This restores both the avatar overlay and the `/api/tts-wav` server route.
-- Remove the avatar only: `npm run inject:revert -- --path <same path>` (also strips
-  the server route and restores the pristine server).
-- Fully unregister: `claude mcp remove voice-hooks` and
-  `node <...>\mcp-voice-hooks\bin\cli.js uninstall` (removes the project voice hooks).
-
-### Platform note
-
-`mcp-voice-hooks` is macOS-oriented: browser STT/TTS and the avatar overlay work on
-Windows with Chrome, but *system* TTS (`say`) is mac-only, and the delivery hooks use
-shell-style commands. If spoken input does not auto-deliver to Claude on Windows, use
-the browser's trigger-word/Send control to push utterances. The avatar itself is
-platform-independent.
-
-The standalone demo (`npm run dev`) remains available to exercise all four states
-without the voice stack.
+- Drive any new renderer through the `ControllableAvatar` seam + the `avatarFactory` in
+  `tauriAdapter` (that is how the orb replaced earlier renderers with zero controller changes).
+- The demo (`/demo/`) and its legacy Three.js renderers + their tests are the host-free harness
+  and the primary Vitest/Playwright surface; keep them green when touching shared code.
+- `src/config` for settings, `src/mood` for the mood layer, `MediaTts` for amplitude-driven
+  speech, `telemetry.ts` for HUD panels.
