@@ -115,8 +115,9 @@ src/
   audio/SpeechReactor.ts    onboundary impulses + envelope, Speaking (Phase 3)
   integration/voiceHooksAdapter.ts  Observes mcp-voice-hooks signals -> controller (Phase 3)
 demo/                       Standalone four-state harness (primary dev/test/demo surface)
-scripts/inject.mjs          Idempotent, reversible injector CLI
-scripts/injector-core.mjs   Pure string transforms for the injector (unit-tested)
+scripts/inject.mjs          Idempotent, reversible injector CLI (HTML + assets + server route)
+scripts/injector-core.mjs   Pure string transforms for the HTML injector (unit-tested)
+scripts/server-patch-core.mjs  Pure transforms for the server tts-wav route patch (unit-tested)
 vendor/three.min.js         Vendored Three.js r128 UMD (global THREE), committed
 ```
 
@@ -229,11 +230,31 @@ What was wired up (2026-06-19):
    The avatar breathes (idle), compresses to your voice (listening), pulses while Claude
    works (thinking), and reacts to word boundaries while Claude speaks.
 
+### Windows TTS: the server `/api/tts-wav` route
+
+On the Windows host the browser speech engine never reaches the speakers (Windows
+SAPI audio routing is broken there) while normal media audio plays fine. The fix
+bypasses the browser engine: the client (`src/audio/MediaTts.ts`, wired by the
+adapter when `mediaSpeak` is on) POSTs each mood-stripped utterance to
+`POST /api/tts-wav`, which synthesizes a WAV via PowerShell `System.Speech` and is
+played through Web Audio (the path that works); it falls back to native
+`speechSynthesis` if the route declines, so macOS is unaffected. The selected voice
+must stay a *browser* voice (Microsoft David), not "system".
+
+That route is NOT in the stock `mcp-voice-hooks` build, so `npm run inject` now also
+patches it into `dist/unified-server.js` (self-contained block, marker-delimited,
+anchored before `app.listen(`, pristine server saved to
+`unified-server.js.avatar-server-backup`). The patch is idempotent and removed by
+`inject:revert`, so it survives package updates: just re-inject. The route takes
+effect only after the MCP server process restarts (restart Claude Code).
+
 ### Maintain / undo
 
 - Re-inject after a package update: `npm run build:lib` then
   `npm run inject -- --path "C:\Users\mstar\AppData\Roaming\npm\node_modules\mcp-voice-hooks\public\index.html"`.
-- Remove the avatar only: `npm run inject:revert -- --path <same path>`.
+  This restores both the avatar overlay and the `/api/tts-wav` server route.
+- Remove the avatar only: `npm run inject:revert -- --path <same path>` (also strips
+  the server route and restores the pristine server).
 - Fully unregister: `claude mcp remove voice-hooks` and
   `node <...>\mcp-voice-hooks\bin\cli.js uninstall` (removes the project voice hooks).
 

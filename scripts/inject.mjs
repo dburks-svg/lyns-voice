@@ -28,9 +28,17 @@ import {
   looksLikeVoiceHooksIndex,
   revertHtml,
 } from './injector-core.mjs';
+import {
+  looksLikeVoiceHooksServer,
+  patchServer,
+  unpatchServer,
+} from './server-patch-core.mjs';
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BACKUP_SUFFIX = '.avatar-backup';
+const SERVER_BACKUP_SUFFIX = '.avatar-server-backup';
+/** Server file location relative to the target `public/` dir. */
+const SERVER_REL_FROM_PUBLIC = ['..', 'dist', 'unified-server.js'];
 
 /** Asset filename -> source path within this repo. */
 const ASSET_SOURCES = {
@@ -147,6 +155,59 @@ async function restoreAssets(publicDir) {
 }
 
 /**
+ * Patch the `/api/tts-wav` route into the `mcp-voice-hooks` server that sits
+ * alongside the injected `public/` dir, so server-synthesized TTS works on
+ * Windows. Backs up the pristine server once, is idempotent, and is skipped
+ * (with a warning, never a hard failure) when the server file is missing,
+ * symlinked, or does not look like an mcp-voice-hooks server.
+ * @param {string} publicDir
+ */
+async function patchServerFile(publicDir) {
+  const serverPath = path.join(publicDir, ...SERVER_REL_FROM_PUBLIC);
+  if (!(await exists(serverPath))) {
+    console.warn(`[avatar] server not found, skipped tts-wav route: ${serverPath}`);
+    return;
+  }
+  if (await isSymlink(serverPath)) {
+    console.warn('[avatar] server is a symlink, skipped tts-wav route.');
+    return;
+  }
+  const original = await readFile(serverPath, 'utf8');
+  if (!looksLikeVoiceHooksServer(original)) {
+    console.warn('[avatar] server does not look like mcp-voice-hooks, skipped tts-wav route.');
+    return;
+  }
+  const backup = serverPath + SERVER_BACKUP_SUFFIX;
+  if (!(await exists(backup))) {
+    // Only the pristine (unpatched) server is a valid backup; never snapshot an
+    // already-patched file.
+    await writeFile(backup, unpatchServer(original), 'utf8');
+  }
+  await writeFile(serverPath, patchServer(original), 'utf8');
+  console.log('[avatar] Patched tts-wav route into', serverPath);
+}
+
+/**
+ * Reverse patchServerFile: restore the pristine server backup if present,
+ * otherwise strip our marked block. Removes the backup on success.
+ * @param {string} publicDir
+ */
+async function restoreServerFile(publicDir) {
+  const serverPath = path.join(publicDir, ...SERVER_REL_FROM_PUBLIC);
+  if (!(await exists(serverPath)) || (await isSymlink(serverPath))) {
+    return;
+  }
+  const backup = serverPath + SERVER_BACKUP_SUFFIX;
+  if (await exists(backup)) {
+    await copyFile(backup, serverPath);
+    await rm(backup, { force: true });
+  } else {
+    await writeFile(serverPath, unpatchServer(await readFile(serverPath, 'utf8')), 'utf8');
+  }
+  console.log('[avatar] Removed tts-wav route from', serverPath);
+}
+
+/**
  * @param {string | undefined} explicit
  * @returns {Promise<string | undefined>}
  */
@@ -228,6 +289,7 @@ async function main() {
     await writeFile(safeTarget, restored, 'utf8');
     await rm(backupPath, { force: true });
     await restoreAssets(publicDir);
+    await restoreServerFile(publicDir);
     console.log('[avatar] Reverted', safeTarget);
     return 0;
   }
@@ -248,6 +310,7 @@ async function main() {
   }
   await writeFile(safeTarget, next, 'utf8');
   await copyAssets(publicDir);
+  await patchServerFile(publicDir);
   console.log('[avatar] Injected avatar into', safeTarget);
   return 0;
 }
