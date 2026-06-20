@@ -57,17 +57,16 @@ body[data-state="speaking"] {
 .hud-bar {
   position: fixed;
   top: 0;
-  left: 0;
   right: 0;
   z-index: 20;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 8px 18px;
-  padding: 8px 16px;
+  gap: 8px;
+  padding: 8px 14px;
   background: linear-gradient(180deg, rgba(5, 18, 30, 0.92), rgba(5, 12, 20, 0.4));
+  border-bottom-left-radius: 8px;
   border-bottom: 1px solid var(--accent-faint);
+  border-left: 1px solid var(--accent-faint);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   opacity: 0.5;
@@ -76,12 +75,33 @@ body[data-state="speaking"] {
 .hud-bar:hover {
   opacity: 1;
 }
-.hud-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+
+/* Gear icon button */
+.hud-gear {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--ink-dim);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.hud-bar button {
+.hud-gear:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+.hud-gear.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.hud-bar button:not(.hud-gear) {
   background: rgba(0, 240, 255, 0.06);
   color: var(--ink);
   border: 1px solid var(--accent-soft);
@@ -94,17 +114,85 @@ body[data-state="speaking"] {
   cursor: pointer;
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
-.hud-bar button:hover {
+.hud-bar button:not(.hud-gear):hover {
   background: rgba(0, 240, 255, 0.16);
   box-shadow: 0 0 10px var(--accent-faint);
 }
-.hud-bar button.active {
+
+/* ---- Settings drawer ---- */
+.settings-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 19;
+  width: min(480px, 94vw);
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom-left-radius: 10px;
+  border-bottom: 1px solid var(--accent-faint);
+  border-left: 1px solid var(--accent-faint);
+  padding: 48px 18px 16px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  transform: translateY(0);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.settings-drawer[hidden] {
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-12px);
+}
+.settings-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-label {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 8px var(--accent-soft);
+  min-width: 48px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.hud-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-drawer button {
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--ink);
+  border: 1px solid var(--accent-soft);
+  border-radius: 3px;
+  padding: 3px 11px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.settings-drawer button:hover {
+  background: rgba(0, 240, 255, 0.16);
+  box-shadow: 0 0 10px var(--accent-faint);
+}
+.settings-drawer button.active {
   background: rgba(0, 240, 255, 0.22);
   color: #eafbff;
   border-color: var(--accent);
   box-shadow: 0 0 12px var(--accent-soft);
 }
-.hud-bar .speak-input {
+.settings-drawer .speak-input {
   background: rgba(4, 12, 22, 0.7);
   color: var(--ink);
   border: 1px solid var(--accent-soft);
@@ -112,9 +200,10 @@ body[data-state="speaking"] {
   padding: 3px 9px;
   font-family: var(--mono);
   font-size: 11px;
-  min-width: 200px;
+  min-width: 180px;
+  flex: 1;
 }
-.hud-bar .speak-input::placeholder {
+.settings-drawer .speak-input::placeholder {
   color: var(--ink-dim);
 }
 

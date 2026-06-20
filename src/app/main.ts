@@ -53,6 +53,15 @@ async function bootstrap(): Promise<void> {
     onBands: (bands) => panels.pushBands(bands),
   });
 
+  // Settings drawer toggle
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsDrawer = document.getElementById('settings-drawer');
+  settingsBtn?.addEventListener('click', () => {
+    const open = settingsDrawer?.hidden === false;
+    if (settingsDrawer) settingsDrawer.hidden = open;
+    settingsBtn.classList.toggle('active', !open);
+  });
+
   for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-state]')) {
     button.addEventListener('click', () => {
       const next = button.dataset.state as AvatarState | undefined;
