@@ -1,5 +1,5 @@
 /* =====================================================================
-   Jarvis FUI stage (Tauri webview).
+   Q FUI stage (Tauri webview).
    Deep space-black, three-column tactical layout, holographic SVG orb,
    floating glass telemetry panels, and a TAP TO TALK mic. Solid background
    (no blur/gradient on the stage itself); neon-cyan accent throughout.
@@ -29,7 +29,7 @@ body {
   margin: 0;
   height: 100%;
 }
-body.jarvis-app {
+body.q-app {
   /* Solid deep space-black: zero blur, zero particle clouds, zero gradient. */
   background: var(--bg);
   color: var(--ink);
@@ -261,7 +261,7 @@ body[data-state="speaking"] {
   }
 }
 
-/* Transcript panel: a scrolling conversation log (you <-> Jarvis). */
+/* Transcript panel: a scrolling conversation log (you <-> Q). */
 .transcript,
 .activity {
   font-family: var(--mono);
@@ -306,7 +306,7 @@ body[data-state="speaking"] {
 .t-user .t-role {
   color: var(--ink-dim);
 }
-.t-jarvis .t-role {
+.t-q .t-role {
   color: var(--accent);
   text-shadow: 0 0 6px var(--accent-soft);
 }
@@ -314,7 +314,7 @@ body[data-state="speaking"] {
   color: #cfe9f5;
   word-break: break-word;
 }
-.t-jarvis .t-text {
+.t-q .t-text {
   color: #eafaff;
 }
 

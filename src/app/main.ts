@@ -1,9 +1,10 @@
 import { VERSION, type AvatarState } from '../index';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
+import { TerminalManager } from './terminal/TerminalManager';
 
 /**
- * Jarvis desktop app entry.
+ * Q desktop app entry.
  *
  * Mounts the holographic orb into the FUI stage through `attachTauri`, which owns
  * the voice-signal seam and the TTS path, and wires the four telemetry panels
@@ -12,7 +13,7 @@ import { TelemetryPanels } from '../integration/telemetry';
  * (Phase 2) and Claude bridge (Phase 3) adapters take over. The state machine,
  * mood, and TTS are reused verbatim; only the renderer and the shell are new.
  */
-function bootstrap(): void {
+async function bootstrap(): Promise<void> {
   const root = document.getElementById('avatar-root');
   if (!root) {
     return;
@@ -123,7 +124,7 @@ function bootstrap(): void {
       claudeButton.textContent = 'connect claude';
       claudeButton.classList.remove('active');
       if (label) {
-        label.textContent = `Jarvis v${VERSION}`;
+        label.textContent = `Q v${VERSION}`;
       }
       return;
     }
@@ -145,8 +146,30 @@ function bootstrap(): void {
     });
   });
 
+  // Terminal windows: spawn draggable/resizable shells inside the app.
+  const terminalLayer = document.getElementById('terminal-layer');
+  const terminalBtn = document.getElementById('terminal-btn');
+  const tauriGlobal = (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+  if (terminalLayer && tauriGlobal) {
+    const tauri = tauriGlobal as {
+      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    };
+    const { listen } = await import('@tauri-apps/api/event');
+    const termMgr = new TerminalManager(terminalLayer, {
+      invoke: tauri.invoke.bind(tauri),
+      listen: listen as (
+        event: string,
+        handler: (e: { payload: unknown }) => void,
+      ) => Promise<() => void>,
+    });
+    terminalBtn?.addEventListener('click', () => {
+      const cwd = (document.getElementById('claude-dir') as HTMLInputElement | null)?.value.trim();
+      void termMgr.spawn(cwd || undefined);
+    });
+  }
+
   if (label) {
-    label.textContent = `Jarvis v${VERSION}`;
+    label.textContent = `Q v${VERSION}`;
   }
 }
 

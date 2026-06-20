@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Jarvis",
+  "productName": "Q",
   "version": "0.1.0",
-  "identifier": "com.nuralyn.jarvis",
+  "identifier": "com.nuralyn.q",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Jarvis",
+        "title": "Q",
         "width": 720,
         "height": 900,
         "minWidth": 420,

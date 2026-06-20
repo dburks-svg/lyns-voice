@@ -1,4 +1,4 @@
-# Jarvis
+# Q
 
 A standalone desktop app (Tauri v2) that is the voice and face of Claude Code. Speak a
 request; a glowing holographic orb listens, shows Claude thinking, and speaks the reply
@@ -7,7 +7,7 @@ token and cost telemetry, and your microphone waveform. Speech runs entirely on-
 (local Whisper for recognition, native Windows synthesis for the voice), and the `claude`
 CLI drives real coding sessions in a project directory you choose.
 
-![The Jarvis desktop app: holographic orb and live telemetry HUD](docs/jarvis-fui.png)
+![The Q desktop app: holographic orb and live telemetry HUD](docs/jarvis-fui.png)
 
 It was built as a native app specifically to leave the browser-overlay era behind: no more
 injecting into someone else's page, no browser speech-recognition lottery, and no
@@ -19,10 +19,10 @@ preserved; the shell is now a real window.
 - **Hands-free voice loop:** speak, auto-send on pause, Claude works, spoken reply with
   mood, back to listening.
 - **Four reactive states** driven by real voice signals: Idle, Listening, Thinking, Speaking.
-- A **holographic Jarvis orb** (Three.js) centerpiece on a three-column tactical HUD; the
+- A **holographic Q orb** (Three.js) centerpiece on a three-column tactical HUD; the
   orb shifts color with both the activity state and the mood.
 - **Four live telemetry panels**, fed by the voice loop:
-  - **Transcript** (you and Jarvis)
+  - **Transcript** (you and Q)
   - **Activity** (each tool Claude runs this turn: Read, Edit, Bash, ...)
   - **Session** (accumulated tokens in/out, cost, turns, uptime)
   - **Audio** (a live oscilloscope of your microphone)
@@ -80,7 +80,7 @@ Build a standalone app you can launch from the Start menu:
 LIBCLANG_PATH="C:/Program Files/LLVM/bin" npm run tauri build
 ```
 
-This produces an unsigned per-user NSIS installer (`Jarvis_<version>_x64-setup.exe`) plus the
+This produces an unsigned per-user NSIS installer (`Q_<version>_x64-setup.exe`) plus the
 raw `app.exe`, under the configured target directory. It is unsigned by design (a private,
 personal, zero-cost tool), so Windows SmartScreen shows a one-time "More info, Run anyway."
 
@@ -109,7 +109,7 @@ silently removed. With no tag it stays neutral. Add the one-line convention to y
 src/
   app/                     Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html
   avatar/
-    JarvisOrbAvatar.ts     Adapter: drives the orb through the ControllableAvatar seam
+    QOrbAvatar.ts          Adapter: drives the orb through the ControllableAvatar seam
     jarvisOrb/             Vendored MIT Three.js orb (renderer.ts + states.ts; see its LICENSE)
     AvatarController.ts    idle|listening|thinking|speaking state machine
     Avatar.ts, reactor.ts, shaders.ts, gltf.ts, noise.ts, deformation.ts   (demo renderers)

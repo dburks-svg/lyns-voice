@@ -77,7 +77,7 @@ export interface AvatarConfig {
 
 export const DEFAULT_CONFIG: AvatarConfig = {
   skin: 'reactor',
-  theme: 'jarvis',
+  theme: 'q',
   mesh: { radius: 1.2, detail: 3 },
   idle: { amplitude: 0.12, frequency: 1.1, speed: 0.5 },
   rotation: { idle: 0.15, listening: 0.1, thinking: 0.6, speaking: 0.2 },

@@ -2,7 +2,7 @@
  * The FUI telemetry panels: turns the four HUD windows from static sci-fi props
  * into live data sinks fed by the voice loop.
  *
- *  - Transcript  : the conversation (you <-> Jarvis), from `onTranscript`.
+ *  - Transcript  : the conversation (you <-> Q), from `onTranscript`.
  *  - Activity    : each tool Claude runs this turn, from `onActivity`.
  *  - Session     : accumulated token usage + cost + turns + uptime, from `onUsage`.
  *  - Waveform    : a live oscilloscope of the mic level, from `onBands`.
@@ -134,7 +134,7 @@ export class TelemetryPanels {
   }
 
   /** Append a transcript line (role-tagged, XSS-safe via textContent). */
-  addTranscript(role: 'user' | 'jarvis', text: string): void {
+  addTranscript(role: 'user' | 'q', text: string): void {
     const host = this.refs.transcript;
     if (!host) return;
     host.querySelector('.t-empty')?.remove(); // drop the "awaiting input" placeholder
@@ -142,7 +142,7 @@ export class TelemetryPanels {
     line.className = `t-line t-${role}`;
     const tag = document.createElement('span');
     tag.className = 't-role';
-    tag.textContent = role === 'user' ? 'YOU' : 'JARVIS';
+    tag.textContent = role === 'user' ? 'YOU' : 'Q';
     const body = document.createElement('span');
     body.className = 't-text';
     body.textContent = text;

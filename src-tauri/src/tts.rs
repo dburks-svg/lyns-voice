@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(wav.len(), 44 + data_len);
 
         // Drop it where the owner can audition it if they want.
-        let out = std::env::temp_dir().join("jarvis-tts-test.wav");
+        let out = std::env::temp_dir().join("q-tts-test.wav");
         std::fs::write(&out, &wav).expect("write wav");
         eprintln!("wrote {} bytes to {}", wav.len(), out.display());
     }

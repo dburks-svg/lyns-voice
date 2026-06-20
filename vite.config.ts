@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 /**
- * Dev server + build for the Jarvis desktop app (Tauri webview) and the
+ * Dev server + build for the Q desktop app (Tauri webview) and the
  * standalone demo.
  *
  * The app entry is the root `index.html`; the host-free demo stays at

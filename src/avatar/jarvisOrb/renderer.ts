@@ -9,27 +9,27 @@ import {
   STATE_TARGETS,
   resolvePalette,
   resolveStateTarget,
-  type JarvisPalette,
-  type JarvisPaletteValues,
-  type JarvisSizePreset,
-  type JarvisState,
-  type JarvisStateName,
-  type JarvisStateTarget,
+  type QPalette,
+  type QPaletteValues,
+  type QSizePreset,
+  type QState,
+  type QStateName,
+  type QStateTarget,
 } from "./states";
 
 export interface RendererOptions {
   canvas: HTMLCanvasElement;
-  preset: JarvisSizePreset;
+  preset: QSizePreset;
   dpr: number;
   targetFps?: number;
   filamentFrameStride?: number;
-  initialState: JarvisState;
-  initialPalette: JarvisPalette;
+  initialState: QState;
+  initialPalette: QPalette;
 }
 
 export interface Renderer {
-  setState: (state: JarvisState) => void;
-  setPalette: (palette: JarvisPalette) => void;
+  setState: (state: QState) => void;
+  setPalette: (palette: QPalette) => void;
   setPointer: (x: number, y: number, active: boolean) => void;
   setSpinActive: (active: boolean) => void;
   spinBy: (deltaX: number, deltaY: number) => void;
@@ -93,7 +93,7 @@ function createHaloTexture(color: THREE.Color): THREE.CanvasTexture {
   return texture;
 }
 
-function createCoreMaterial(colors: JarvisPaletteValues): THREE.ShaderMaterial {
+function createCoreMaterial(colors: QPaletteValues): THREE.ShaderMaterial {
 
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -137,7 +137,7 @@ function createCoreMaterial(colors: JarvisPaletteValues): THREE.ShaderMaterial {
   });
 }
 
-function createFlatRingMaterial(colors: JarvisPaletteValues, opacity: number): THREE.ShaderMaterial {
+function createFlatRingMaterial(colors: QPaletteValues, opacity: number): THREE.ShaderMaterial {
 
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -188,7 +188,7 @@ function createFlatRingMaterial(colors: JarvisPaletteValues, opacity: number): T
   });
 }
 
-function createParticleMaterial(colors: JarvisPaletteValues, pointScale: number, dpr: number): THREE.ShaderMaterial {
+function createParticleMaterial(colors: QPaletteValues, pointScale: number, dpr: number): THREE.ShaderMaterial {
 
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -244,7 +244,7 @@ function createParticleMaterial(colors: JarvisPaletteValues, pointScale: number,
   });
 }
 
-function createDataPacketMaterial(colors: JarvisPaletteValues, pointScale: number, dpr: number): THREE.ShaderMaterial {
+function createDataPacketMaterial(colors: QPaletteValues, pointScale: number, dpr: number): THREE.ShaderMaterial {
 
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -558,7 +558,7 @@ export function createRenderer(opts: RendererOptions): Renderer {
   interactionGroup.add(root);
   root.add(coreGroup, ringGroup);
 
-  let paletteValues: JarvisPaletteValues = resolvePalette(initialPalette);
+  let paletteValues: QPaletteValues = resolvePalette(initialPalette);
   let haloTexture = createHaloTexture(new THREE.Color(paletteValues.primary));
   const haloMaterial = new THREE.SpriteMaterial({
     map: haloTexture,
@@ -701,8 +701,8 @@ export function createRenderer(opts: RendererOptions): Renderer {
   lineMaterials.push(spokeMaterial);
   ringGroup.add(spokes);
 
-  let target: JarvisStateTarget = { ...resolveStateTarget(initialState) };
-  const current: JarvisStateTarget = { ...target };
+  let target: QStateTarget = { ...resolveStateTarget(initialState) };
+  const current: QStateTarget = { ...target };
   let intensityOverride: number | null = null;
   const pointerTarget = { x: 0, y: 0, active: 0 };
   const pointerCurrent = { x: 0, y: 0, active: 0 };
@@ -721,7 +721,7 @@ export function createRenderer(opts: RendererOptions): Renderer {
   let lastHeight = 0;
   let frameIndex = 0;
 
-  function applyPalette(next: JarvisPalette) {
+  function applyPalette(next: QPalette) {
     const colors = resolvePalette(next);
     paletteValues = colors;
 
@@ -883,7 +883,7 @@ export function createRenderer(opts: RendererOptions): Renderer {
       const resolved = resolveStateTarget(state);
       target = { ...resolved };
 
-      const name: JarvisStateName | null = typeof state === "string" ? state : null;
+      const name: QStateName | null = typeof state === "string" ? state : null;
       pulseEnergy = Math.max(
         pulseEnergy,
         name === "idle" ? 0.2 : name === "thinking" ? 0.62 : name === "alert" ? 0.88 : name === "success" ? 1.25 : 0.62,

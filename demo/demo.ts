@@ -37,7 +37,7 @@ function bootstrap(): void {
 
   const setStatus = (text: string): void => {
     if (status) {
-      status.textContent = `Jarvis Avatar v${VERSION} - ${avatar.skin} - ${text}`;
+      status.textContent = `Q Avatar v${VERSION} - ${avatar.skin} - ${text}`;
     }
   };
 

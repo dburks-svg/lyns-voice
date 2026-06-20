@@ -1,4 +1,4 @@
-# CLAUDE.md - Jarvis (Tauri desktop app)
+# CLAUDE.md - Q (Tauri desktop app)
 
 A standalone **Tauri v2 desktop app** that is the voice and face of Claude Code: a
 holographic orb on a futuristic HUD that listens (local Whisper STT), thinks while the
@@ -30,7 +30,7 @@ VoiceSignals { micActive, speaking, pendingResponse } -> deriveState() -> Avatar
 
 (`src/integration/signals.ts`). Any renderer that implements the `ControllableAvatar`
 interface (`src/avatar/AvatarController.ts`) is driven by the controller unchanged. The live
-app's renderer is `JarvisOrbAvatar` (the vendored Three.js orb); the demo keeps the legacy
+app's renderer is `QOrbAvatar` (the vendored Three.js orb); the demo keeps the legacy
 `Avatar`/`reactor`/`head` renderers. `AVATAR_SPEC.md` defines the four states' intent and is
 the behavioral source of truth; the rest of that spec predates the Tauri migration. Do not
 edit `AVATAR_SPEC.md`.
@@ -40,7 +40,7 @@ edit `AVATAR_SPEC.md`.
 - **Phase 0** mount; **Phase 1** native SAPI TTS; **Phase 2** local Whisper STT + VAD
   auto-send-on-pause; **Phase 3** Claude Code stream-json bridge (the full hands-free loop);
   **Phase 4** security (dontAsk allowlist + Thinking watchdog + strict CSP), deferred tests.
-- **FUI overhaul:** the vendored MIT Three.js Jarvis orb centerpiece (full-window) + the
+- **FUI overhaul:** the vendored MIT Three.js Q orb centerpiece (full-window) + the
   three-column tactical HUD + four live telemetry panels (transcript / activity / session
   tokens+cost / mic waveform); mood-driven palette (idle navy, active blue).
 - **Packaging:** unsigned per-user NSIS build. Private, personal, zero-cost tool, so signing
@@ -72,7 +72,7 @@ the release `target-dir` is redirected to `%LOCALAPPDATA%` via a gitignored `.ca
 src/
   app/                  Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html (root)
   avatar/
-    JarvisOrbAvatar.ts  Adapter: drives the vendored orb through the ControllableAvatar seam
+    QOrbAvatar.ts       Adapter: drives the vendored orb through the ControllableAvatar seam
     jarvisOrb/          Vendored MIT Three.js orb (renderer.ts + states.ts; keep its LICENSE)
     AvatarController.ts idle|listening|thinking|speaking state machine (+ mood, FFT bands)
     Avatar.ts, reactor.ts, shaders.ts, gltf.ts, noise.ts, deformation.ts  (demo renderers)
@@ -106,7 +106,7 @@ src-tauri/              Rust backend
   which feed the HUD). A monotonic generation guard makes a superseded session inert.
 - **Frontend seam** (`tauriAdapter.ts`): the only substantial glue. It wires the events to the
   controller + `telemetry.ts`, owns the speech queue, the turn-taking guards, and the Thinking
-  watchdog, and injects the renderer via `avatarFactory` (default `JarvisOrbAvatar`).
+  watchdog, and injects the renderer via `avatarFactory` (default `QOrbAvatar`).
 
 ## Security
 

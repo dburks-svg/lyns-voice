@@ -15,7 +15,7 @@
  */
 
 import type { AvatarOptions } from '../avatar/Avatar';
-import { JarvisOrbAvatar } from '../avatar/JarvisOrbAvatar';
+import { QOrbAvatar } from '../avatar/QOrbAvatar';
 import {
   AvatarController,
   type AvatarState,
@@ -34,8 +34,8 @@ type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
 /** Minimal shape of Tauri's `invoke`; injectable so the unit tests stay headless. */
 export type InvokeFn = <T>(cmd: string, args?: InvokeArgs) => Promise<T>;
 
-/** Who said a transcript line: the user (mic) or Jarvis (spoken reply). */
-export type TranscriptRole = 'user' | 'jarvis';
+/** Who said a transcript line: the user (mic) or Q (spoken reply). */
+export type TranscriptRole = 'user' | 'q';
 
 /** A tool Claude invoked this turn (from `claude://activity`); feeds the HUD. */
 export interface ClaudeActivity {
@@ -58,7 +58,7 @@ export type ListenFn = <T>(event: string, handler: (payload: T) => void) => Prom
 /**
  * The structural renderer surface the adapter drives: the four-state
  * `ControllableAvatar` contract plus the small lifecycle the host needs. Both the
- * Three.js `Avatar` and the `JarvisOrbAvatar` satisfy it, so either can be injected.
+ * Three.js `Avatar` and the `QOrbAvatar` satisfy it, so either can be injected.
  */
 export interface AvatarLike extends ControllableAvatar {
   reducedMotion: boolean;
@@ -69,10 +69,10 @@ export interface AvatarLike extends ControllableAvatar {
   dispose(): void;
 }
 
-/** Builds the renderer for the host; defaults to the `JarvisOrbAvatar`. */
+/** Builds the renderer for the host; defaults to the `QOrbAvatar`. */
 export type AvatarFactory = (options?: AvatarOptions) => AvatarLike;
 
-const defaultAvatarFactory: AvatarFactory = (options) => new JarvisOrbAvatar(options);
+const defaultAvatarFactory: AvatarFactory = (options) => new QOrbAvatar(options);
 
 /** How long to wait for a Claude reply before recovering from a hung Thinking. */
 const WATCHDOG_MS = 120_000;
@@ -175,7 +175,7 @@ export interface TauriAdapterOptions {
   statusLabel?: HTMLElement | null;
   /** Passed straight to the avatar factory (colors, etc.). */
   avatarOptions?: AvatarOptions;
-  /** Injectable renderer factory; defaults to the `JarvisOrbAvatar`. */
+  /** Injectable renderer factory; defaults to the `QOrbAvatar`. */
   avatarFactory?: AvatarFactory;
   /** Injectable `invoke`; defaults to lazy `@tauri-apps/api/core`. */
   invoke?: InvokeFn;
@@ -183,7 +183,7 @@ export interface TauriAdapterOptions {
   listen?: ListenFn;
   /** Called with each finalized STT utterance (Phase 3 wires this to Claude). */
   onUtterance?: (text: string) => void;
-  /** Transcript stream: user utterances and spoken Jarvis replies (HUD chat). */
+  /** Transcript stream: user utterances and spoken Q replies (HUD chat). */
   onTranscript?: (role: TranscriptRole, text: string) => void;
   /** Each tool Claude invokes this turn (HUD activity feed). */
   onActivity?: (activity: ClaudeActivity) => void;
@@ -353,7 +353,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       mood.setMood(parsed.mood);
     }
     safeSetText(options.caption ?? null, parsed.stripped);
-    options.onTranscript?.('jarvis', parsed.stripped); // HUD chat log
+    options.onTranscript?.('q', parsed.stripped); // HUD chat log
     const chunks = splitForSpeech(parsed.stripped);
     if (chunks.length === 0) {
       return true;

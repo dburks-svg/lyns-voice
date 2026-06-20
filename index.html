@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jarvis</title>
+    <title>Q</title>
     <link rel="stylesheet" href="/src/app/shell.css" />
+    <link rel="stylesheet" href="/src/app/terminal/terminal.css" />
   </head>
-  <body class="jarvis-app">
+  <body class="q-app">
     <!-- Full-window holographic orb: a transparent WebGL canvas mounts here and
          glows over the solid background; the FUI panels float on top of it. -->
     <div id="avatar-root"></div>
@@ -43,6 +44,9 @@
         />
         <button id="claude-btn">connect claude</button>
       </div>
+      <div class="hud-group">
+        <button id="terminal-btn">+ terminal</button>
+      </div>
     </div>
 
     <!-- FUI stage: a three-column tactical layout beneath the HUD. Left/right
@@ -50,7 +54,7 @@
          holographic orb; the footer carries the TAP TO TALK mic. -->
     <main class="stage">
       <aside class="col col-left">
-        <!-- Top-left: live conversation transcript (you <-> Jarvis) -->
+        <!-- Top-left: live conversation transcript (you <-> Q) -->
         <section class="panel panel-transcript">
           <header class="panel-head">
             <span class="led"></span><span class="led"></span><span class="led"></span>
@@ -118,6 +122,9 @@
         </button>
       </footer>
     </main>
+
+    <!-- Terminal layer: floating draggable/resizable terminal windows -->
+    <div id="terminal-layer" class="terminal-layer"></div>
 
     <!-- Spoken reply caption: keeps replies READABLE even when audio is off.
          Mood markers are stripped before they reach here. -->

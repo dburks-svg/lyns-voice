@@ -65,14 +65,14 @@ describe('TelemetryPanels', () => {
 
     const panels = new TelemetryPanels(refs);
     panels.addTranscript('user', 'hello there');
-    panels.addTranscript('jarvis', 'hi');
+    panels.addTranscript('q', 'hi');
 
     expect(refs.transcript?.querySelector('.t-empty')).toBeNull();
     const lines = refs.transcript?.querySelectorAll('.t-line');
     expect(lines?.length).toBe(2);
     expect(lines?.[0].querySelector('.t-role')?.textContent).toBe('YOU');
     expect(lines?.[0].querySelector('.t-text')?.textContent).toBe('hello there');
-    expect(lines?.[1].querySelector('.t-role')?.textContent).toBe('JARVIS');
+    expect(lines?.[1].querySelector('.t-role')?.textContent).toBe('Q');
   });
 
   it('renders transcript text via textContent (no markup injection)', () => {

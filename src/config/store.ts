@@ -25,7 +25,7 @@ export interface StorageLike {
   setItem(key: string, value: string): void;
 }
 
-export const STORAGE_KEY = 'jarvis-avatar-config';
+export const STORAGE_KEY = 'q-avatar-config';
 
 const SKINS: readonly Skin[] = ['orb', 'head', 'reactor'];
 const GLOW_MODES: readonly GlowMode[] = ['fresnel', 'halo', 'bloom'];

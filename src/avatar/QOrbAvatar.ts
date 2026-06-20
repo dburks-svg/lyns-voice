@@ -1,11 +1,11 @@
 /**
- * Adapter: drives the vendored MIT Jarvis orb (src/avatar/jarvisOrb, a
+ * Adapter: drives the vendored MIT Q orb (src/avatar/jarvisOrb, a
  * self-contained Three.js renderer) through our `ControllableAvatar` seam, so the
  * four-state machine, mood, and the entire voice loop drive it with ZERO changes.
  * It is a drop-in for the `avatarFactory` in `tauriAdapter` (same surface the SVG
  * `HoloOrb` exposed).
  *
- * The orb is STATE-target driven (it eases toward a `JarvisStateTarget`) and
+ * The orb is STATE-target driven (it eases toward a `QStateTarget`) and
  * exposes a live `setIntensityOverride` (energy) + `pulse`. Our `AvatarController`
  * pushes continuous scalars (`params.amplitude` / `params.speed`, glow). We bridge
  * them: `params.speed` is constant per state (idle 0.5 / listening 0.9 / speaking
@@ -19,9 +19,9 @@
 import { createRenderer, type Renderer } from './jarvisOrb/renderer';
 import {
   SIZE_PRESETS,
-  type JarvisStateTarget,
-  type JarvisSizePreset,
-  type JarvisPaletteValues,
+  type QStateTarget,
+  type QSizePreset,
+  type QPaletteValues,
 } from './jarvisOrb/states';
 import type { AvatarOptions } from './Avatar';
 import type { DeformationParams } from './deformation';
@@ -34,7 +34,7 @@ type Activity = 'idle' | 'listening' | 'thinking' | 'speaking';
  * (drives halo size/opacity + ring brightness + inner-core glow), bigger
  * `coreScale`, fuller `ringSpread`, brighter `filamentOpacity`.
  */
-const ORB_STATES: Record<Activity, JarvisStateTarget> = {
+const ORB_STATES: Record<Activity, QStateTarget> = {
   idle: {
     energy: 0.9,
     rotationSpeed: 0.5,
@@ -78,7 +78,7 @@ const ORB_STATES: Record<Activity, JarvisStateTarget> = {
 };
 
 /** Full-window immersive preset: fill the frame, dense particles/filaments. */
-const IMMERSIVE_PRESET: JarvisSizePreset = {
+const IMMERSIVE_PRESET: QSizePreset = {
   ...SIZE_PRESETS.hero,
   sceneScale: 1.05,
   particleCount: 1000,
@@ -123,12 +123,12 @@ function rgbaString(hex: number, alpha: number): string {
 }
 
 /**
- * Build a Jarvis orb palette from the controller's rim/core hex (which already
+ * Build a Q orb palette from the controller's rim/core hex (which already
  * encode the per-state color and any mood tint). `rim` is the dominant neon
  * (primary), `core` the deeper tone (secondary); the hot center burns toward
  * white, and the reduced-motion CSS fallback gradient is derived to match.
  */
-function paletteFromColors(rim: number, core: number): JarvisPaletteValues {
+function paletteFromColors(rim: number, core: number): QPaletteValues {
   const hot = lighten(rim, 0.78);
   return {
     core: hot,
@@ -143,7 +143,7 @@ function paletteFromColors(rim: number, core: number): JarvisPaletteValues {
   };
 }
 
-export class JarvisOrbAvatar {
+export class QOrbAvatar {
   beforeRender: ((time: number) => void) | null = null;
   reducedMotion = false;
   readonly params: DeformationParams = { amplitude: 0.12, frequency: 1.1, speed: 0.5 };
@@ -175,7 +175,7 @@ export class JarvisOrbAvatar {
   private disposed = false;
   private lastRim = -1;
   private lastCore = -1;
-  private pendingPalette: JarvisPaletteValues | null = null;
+  private pendingPalette: QPaletteValues | null = null;
 
   constructor(_options: AvatarOptions = {}) {
     this.canvas = document.createElement('canvas');
@@ -287,7 +287,7 @@ export class JarvisOrbAvatar {
   }
 
   /** Gentle the rotation/particle motion when the user prefers reduced motion. */
-  private calmed(target: JarvisStateTarget): JarvisStateTarget {
+  private calmed(target: QStateTarget): QStateTarget {
     if (!this.reducedMotion) return target;
     return {
       ...target,

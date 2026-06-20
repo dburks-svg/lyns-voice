@@ -569,12 +569,12 @@ mod tests {
     }
 
     // Spike C: proves whisper-rs builds + measures latency on the real CPU.
-    // Run: set JARVIS_MODEL + JARVIS_WAV, then `cargo test -- --ignored --nocapture`.
+    // Run: set Q_MODEL + Q_WAV, then `cargo test -- --ignored --nocapture`.
     #[test]
-    #[ignore = "loads a whisper model; set JARVIS_MODEL + JARVIS_WAV, run with --ignored"]
+    #[ignore = "loads a whisper model; set Q_MODEL + Q_WAV, run with --ignored"]
     fn transcribe_sample() {
-        let model = std::env::var("JARVIS_MODEL").expect("set JARVIS_MODEL");
-        let wav = std::env::var("JARVIS_WAV").expect("set JARVIS_WAV");
+        let model = std::env::var("Q_MODEL").expect("set Q_MODEL");
+        let wav = std::env::var("Q_WAV").expect("set Q_WAV");
         let pcm = read_wav_i16(&wav).expect("read wav");
         eprintln!(
             "audio: {} samples (~{:.1}s @16kHz)",

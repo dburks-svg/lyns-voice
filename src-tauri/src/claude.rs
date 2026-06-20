@@ -276,6 +276,8 @@ fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(windows)]
+        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
         c
     };
     match build(OsStr::new("claude")).spawn() {

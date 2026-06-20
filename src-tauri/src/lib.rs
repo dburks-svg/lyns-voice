@@ -1,5 +1,6 @@
 mod claude;
 mod stt;
+mod terminal;
 mod tts;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,6 +18,7 @@ pub fn run() {
     })
     .manage(stt::SttState::default())
     .manage(claude::ClaudeState::default())
+    .manage(terminal::TerminalState::default())
     .invoke_handler(tauri::generate_handler![
       tts::tts_synthesize,
       stt::stt_start,
@@ -25,7 +27,11 @@ pub fn run() {
       stt::stt_push_frame,
       claude::claude_start,
       claude::claude_submit,
-      claude::claude_stop
+      claude::claude_stop,
+      terminal::terminal_spawn,
+      terminal::terminal_write,
+      terminal::terminal_kill,
+      terminal::terminal_resize
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

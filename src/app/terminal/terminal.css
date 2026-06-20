@@ -1,0 +1,159 @@
+/* =====================================================================
+   Floating terminal windows: glass panels matching the FUI aesthetic.
+   z-index 5 layer, above the stage grid but below the HUD bar.
+   ===================================================================== */
+
+.terminal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.terminal-window {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+
+  background: var(--glass);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  clip-path: var(--notch);
+  box-shadow:
+    0 0 26px rgba(0, 240, 255, 0.07),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+
+  min-width: 300px;
+  min-height: 200px;
+  border-radius: 0;
+}
+
+/* Neon border: same technique as .panel::before */
+.terminal-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-faint) 70%);
+  clip-path: var(--notch);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.terminal-window > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Header bar: drag handle, LEDs, title, close button */
+.terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px 6px 12px;
+  border-bottom: 1px solid var(--accent-faint);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.terminal-head:active {
+  cursor: grabbing;
+}
+.terminal-head .panel-title {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  text-shadow: 0 0 8px var(--accent-soft);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-close {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--ink-dim);
+  font-size: 16px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.terminal-close:hover {
+  color: #ff5a7a;
+  border-color: rgba(255, 90, 122, 0.4);
+}
+
+/* Body: fills remaining space for xterm */
+.terminal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+/* xterm overrides to match FUI scrollbar */
+.terminal-body .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-soft) transparent;
+}
+.terminal-body .xterm-viewport::-webkit-scrollbar {
+  width: 5px;
+}
+.terminal-body .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--accent-faint);
+  border-radius: 3px;
+}
+
+/* --- Resize handles: 8 invisible edge/corner zones --- */
+.resize-handle {
+  position: absolute;
+  z-index: 2;
+}
+.rh-n {
+  top: -3px; left: 8px; right: 8px; height: 6px;
+  cursor: n-resize;
+}
+.rh-s {
+  bottom: -3px; left: 8px; right: 8px; height: 6px;
+  cursor: s-resize;
+}
+.rh-e {
+  right: -3px; top: 8px; bottom: 8px; width: 6px;
+  cursor: e-resize;
+}
+.rh-w {
+  left: -3px; top: 8px; bottom: 8px; width: 6px;
+  cursor: w-resize;
+}
+.rh-ne {
+  top: -3px; right: -3px; width: 14px; height: 14px;
+  cursor: ne-resize;
+}
+.rh-nw {
+  top: -3px; left: -3px; width: 14px; height: 14px;
+  cursor: nw-resize;
+}
+.rh-se {
+  bottom: -3px; right: -3px; width: 14px; height: 14px;
+  cursor: se-resize;
+}
+.rh-sw {
+  bottom: -3px; left: -3px; width: 14px; height: 14px;
+  cursor: sw-resize;
+}

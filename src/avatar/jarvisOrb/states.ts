@@ -4,13 +4,13 @@
  * Local change only: three r128 compat (colorSpace/outputColorSpace -> encoding/
  * outputEncoding). Vendored third-party code; excluded from our eslint.
  */
-export type JarvisStateName = "idle" | "thinking" | "success" | "alert";
+export type QStateName = "idle" | "thinking" | "success" | "alert";
 
-export type JarvisSize = "hero" | "panel" | "avatar";
+export type QSize = "hero" | "panel" | "avatar";
 
-export type JarvisPaletteName = "cyan" | "aurora" | "ember";
+export type QPaletteName = "cyan" | "aurora" | "ember";
 
-export interface JarvisStateTarget {
+export interface QStateTarget {
   energy: number;
   rotationSpeed: number;
   particleSpeed: number;
@@ -21,7 +21,7 @@ export interface JarvisStateTarget {
   bloom: number;
 }
 
-export interface JarvisSizePreset {
+export interface QSizePreset {
   px: number;
   particleCount: number;
   filamentCount: number;
@@ -31,7 +31,7 @@ export interface JarvisSizePreset {
   minDpr: number;
 }
 
-export interface JarvisPaletteValues {
+export interface QPaletteValues {
   core: number;
   primary: number;
   secondary: number;
@@ -40,10 +40,10 @@ export interface JarvisPaletteValues {
   fallback: string;
 }
 
-export type JarvisState = JarvisStateName | JarvisStateTarget;
-export type JarvisPalette = JarvisPaletteName | JarvisPaletteValues;
+export type QState = QStateName | QStateTarget;
+export type QPalette = QPaletteName | QPaletteValues;
 
-export const STATE_TARGETS: Record<JarvisStateName, JarvisStateTarget> = {
+export const STATE_TARGETS: Record<QStateName, QStateTarget> = {
   idle: {
     energy: 0.72,
     rotationSpeed: 0.48,
@@ -86,7 +86,7 @@ export const STATE_TARGETS: Record<JarvisStateName, JarvisStateTarget> = {
   },
 };
 
-export const SIZE_PRESETS: Record<JarvisSize, JarvisSizePreset> = {
+export const SIZE_PRESETS: Record<QSize, QSizePreset> = {
   hero: {
     px: 640,
     particleCount: 660,
@@ -119,7 +119,7 @@ export const SIZE_PRESETS: Record<JarvisSize, JarvisSizePreset> = {
 const cyanFallback =
   "radial-gradient(circle at 50% 50%, rgba(238,255,255,0.96) 0%, rgba(71,245,255,0.82) 16%, rgba(20,184,255,0.48) 42%, rgba(6,92,148,0.22) 70%, rgba(0,0,0,0) 82%)";
 
-export const PALETTES: Record<JarvisPaletteName, JarvisPaletteValues> = {
+export const PALETTES: Record<QPaletteName, QPaletteValues> = {
   cyan: {
     core: 0xeaffff,
     primary: 0x38f4ff,
@@ -146,13 +146,13 @@ export const PALETTES: Record<JarvisPaletteName, JarvisPaletteValues> = {
   },
 };
 
-export function resolvePalette(input: JarvisPalette | undefined): JarvisPaletteValues {
+export function resolvePalette(input: QPalette | undefined): QPaletteValues {
   if (!input) return PALETTES.cyan;
   if (typeof input === "string") return PALETTES[input] ?? PALETTES.cyan;
   return input;
 }
 
-export function resolveStateTarget(input: JarvisState | undefined): JarvisStateTarget {
+export function resolveStateTarget(input: QState | undefined): QStateTarget {
   if (!input) return STATE_TARGETS.idle;
   if (typeof input === "string") return STATE_TARGETS[input] ?? STATE_TARGETS.idle;
   return input;
