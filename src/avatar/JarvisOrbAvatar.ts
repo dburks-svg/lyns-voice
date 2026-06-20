@@ -17,7 +17,12 @@
  */
 
 import { createRenderer, type Renderer } from './jarvisOrb/renderer';
-import { SIZE_PRESETS, type JarvisStateTarget, type JarvisSizePreset } from './jarvisOrb/states';
+import {
+  SIZE_PRESETS,
+  type JarvisStateTarget,
+  type JarvisSizePreset,
+  type JarvisPaletteValues,
+} from './jarvisOrb/states';
 import type { AvatarOptions } from './Avatar';
 import type { DeformationParams } from './deformation';
 
@@ -95,6 +100,49 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/** Lighten a 0xRRGGBB toward white by t in [0,1]. */
+function lighten(hex: number, t: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  const mix = (c: number): number => Math.round(c + (255 - c) * t);
+  return (mix(r) << 16) | (mix(g) << 8) | mix(b);
+}
+
+/** Darken a 0xRRGGBB toward black by t in [0,1]. */
+function darken(hex: number, t: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  const mix = (c: number): number => Math.round(c * (1 - t));
+  return (mix(r) << 16) | (mix(g) << 8) | mix(b);
+}
+
+function rgbaString(hex: number, alpha: number): string {
+  return `rgba(${(hex >> 16) & 0xff}, ${(hex >> 8) & 0xff}, ${hex & 0xff}, ${alpha})`;
+}
+
+/**
+ * Build a Jarvis orb palette from the controller's rim/core hex (which already
+ * encode the per-state color and any mood tint). `rim` is the dominant neon
+ * (primary), `core` the deeper tone (secondary); the hot center burns toward
+ * white, and the reduced-motion CSS fallback gradient is derived to match.
+ */
+function paletteFromColors(rim: number, core: number): JarvisPaletteValues {
+  const hot = lighten(rim, 0.78);
+  return {
+    core: hot,
+    primary: rim,
+    secondary: core,
+    tertiary: lighten(rim, 0.4),
+    deep: darken(core, 0.55),
+    fallback: `radial-gradient(circle at 50% 50%, ${rgbaString(hot, 0.96)} 0%, ${rgbaString(
+      rim,
+      0.82,
+    )} 18%, ${rgbaString(core, 0.42)} 48%, ${rgbaString(darken(core, 0.55), 0.2)} 72%, rgba(0,0,0,0) 84%)`,
+  };
+}
+
 export class JarvisOrbAvatar {
   beforeRender: ((time: number) => void) | null = null;
   reducedMotion = false;
@@ -125,6 +173,9 @@ export class JarvisOrbAvatar {
   private startTimeMs: number | null = null;
   private activity: Activity | null = null;
   private disposed = false;
+  private lastRim = -1;
+  private lastCore = -1;
+  private pendingPalette: JarvisPaletteValues | null = null;
 
   constructor(_options: AvatarOptions = {}) {
     this.canvas = document.createElement('canvas');
@@ -146,9 +197,18 @@ export class JarvisOrbAvatar {
     /* no-op: bloom comes from the orb state target */
   }
 
-  /** Mood tinting (rim/core) is deferred; the orb keeps its cyan palette for now. */
-  setColors(_rim: number, _core: number): void {
-    /* no-op v1: cyan palette matches the target */
+  /**
+   * Drive the orb palette from the controller's per-state + mood colors (idle
+   * navy/slate -> listening/speaking bright blue, plus mood tints). The
+   * controller emits these every frame, but `setPalette` rebuilds a halo texture,
+   * so we only flag a change here and apply it once per frame in `applyToOrb`,
+   * and only when the hex actually changed.
+   */
+  setColors(rim: number, core: number): void {
+    if (rim === this.lastRim && core === this.lastCore) return;
+    this.lastRim = rim;
+    this.lastCore = core;
+    this.pendingPalette = paletteFromColors(rim, core);
   }
 
   // --- Avatar lifecycle (used by attachTauri) -----------------------------
@@ -211,6 +271,11 @@ export class JarvisOrbAvatar {
   /** Push the controller's current scalars onto the orb (called after each tick). */
   private applyToOrb(): void {
     if (!this.orb) return;
+    // Apply a queued palette change once per frame (setColors only flags it).
+    if (this.pendingPalette) {
+      this.orb.setPalette(this.pendingPalette);
+      this.pendingPalette = null;
+    }
     const next = activityFromSpeed(this.params.speed);
     if (next !== this.activity) {
       this.activity = next;
