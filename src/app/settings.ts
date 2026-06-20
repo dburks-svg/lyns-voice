@@ -11,6 +11,7 @@ export interface AppSettings {
   ttsPitch: number;
   micDeviceId: string;
   vadMs: number;
+  theme: string;
 }
 
 const DEFAULTS: AppSettings = {
@@ -19,6 +20,7 @@ const DEFAULTS: AppSettings = {
   ttsPitch: 0,
   micDeviceId: '',
   vadMs: 810,
+  theme: 'cyan',
 };
 
 export function loadSettings(): AppSettings {

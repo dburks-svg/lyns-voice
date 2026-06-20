@@ -1,4 +1,5 @@
 import { VERSION } from '../index';
+import { type ThemeName } from '../config/config';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
@@ -135,6 +136,23 @@ async function bootstrap(): Promise<void> {
 
   // --- Settings controls ---
   wireSettings(settings);
+
+  // Apply saved theme on startup and wire buttons to switch it live
+  if (settings.theme && settings.theme !== 'cyan') {
+    handle.setTheme(settings.theme as ThemeName);
+  }
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.theme-btn')) {
+    if (btn.dataset.theme === settings.theme) {
+      for (const b of document.querySelectorAll('.theme-btn')) b.classList.remove('active');
+      btn.classList.add('active');
+    }
+    btn.addEventListener('click', () => {
+      const theme = btn.dataset.theme as ThemeName;
+      handle.setTheme(theme);
+      settings.theme = theme;
+      saveSettings(settings);
+    });
+  }
 
   // Terminal windows: spawn draggable/resizable shells inside the app.
   const terminalLayer = document.getElementById('terminal-layer');
@@ -286,13 +304,6 @@ function wireSettings(settings: AppSettings): void {
     saveSettings(settings);
   });
 
-  // Theme buttons
-  for (const btn of document.querySelectorAll<HTMLButtonElement>('.theme-btn')) {
-    btn.addEventListener('click', () => {
-      for (const b of document.querySelectorAll('.theme-btn')) b.classList.remove('active');
-      btn.classList.add('active');
-    });
-  }
 }
 
 bootstrap();

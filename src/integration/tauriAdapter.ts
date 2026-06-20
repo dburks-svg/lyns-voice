@@ -25,6 +25,7 @@ import { MediaTts, type MediaTtsOptions } from '../audio/MediaTts';
 import { SttCapture } from '../audio/SttCapture';
 import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
+import { THEME_PALETTES, type ThemeName } from '../config/config';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { deriveState, type VoiceSignals } from './signals';
 
@@ -226,6 +227,8 @@ export interface TauriHandle {
   isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
   setState(state: AvatarState): void;
+  /** Switch the orb's color theme at runtime. */
+  setTheme(theme: ThemeName): void;
   dispose(): void;
 }
 
@@ -539,6 +542,10 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     stopClaude,
     isClaudeConnected: () => claudeConnected,
     setState: (state) => controller.setState(state),
+    setTheme: (theme: ThemeName) => {
+      const palette = THEME_PALETTES[theme];
+      if (palette) controller.setPalette(palette);
+    },
     dispose: () => {
       watchdog.clear();
       capture.stop();

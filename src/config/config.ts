@@ -99,6 +99,38 @@ export const DEFAULT_CONFIG: AvatarConfig = {
   headUrl: 'head.glb',
 };
 
+export type ThemeName = 'cyan' | 'aurora' | 'ember';
+
+export const THEME_PALETTES: Record<ThemeName, PaletteConfig> = {
+  cyan: {
+    idleRim: 0x3a5f8f,
+    idleCore: 0x0a1530,
+    neonRim: 0x00f0ff,
+    listeningCore: 0x0077ff,
+    thinkingRim: 0x33e0ff,
+    thinkingCore: 0x0088ff,
+    speakingCore: 0x00a0ff,
+  },
+  aurora: {
+    idleRim: 0x3a8f5f,
+    idleCore: 0x0a2818,
+    neonRim: 0x00ffaa,
+    listeningCore: 0x00cc77,
+    thinkingRim: 0x33ffb8,
+    thinkingCore: 0x00dd88,
+    speakingCore: 0x00eea0,
+  },
+  ember: {
+    idleRim: 0x8f5f3a,
+    idleCore: 0x281408,
+    neonRim: 0xff8800,
+    listeningCore: 0xff6600,
+    thinkingRim: 0xffaa33,
+    thinkingCore: 0xff7700,
+    speakingCore: 0xff9900,
+  },
+};
+
 /** Deep clone so callers can mutate a config without touching the defaults. */
 export function cloneConfig(config: AvatarConfig): AvatarConfig {
   return {

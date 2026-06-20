@@ -1,5 +1,5 @@
 import { IDLE_PARAMS } from './Avatar';
-import { DEFAULT_CONFIG, type AvatarConfig } from '../config/config';
+import { DEFAULT_CONFIG, type AvatarConfig, type PaletteConfig } from '../config/config';
 import type { MoodLayer } from '../mood/MoodController';
 import type { DeformationParams } from './deformation';
 
@@ -92,6 +92,18 @@ export class AvatarController {
       this.micBands = null;
     }
     this.onStateChange?.(state);
+  }
+
+  /** Swap the color palette at runtime (theme switching). */
+  setPalette(palette: PaletteConfig): void {
+    const p = this.config.palette;
+    p.idleRim = palette.idleRim;
+    p.idleCore = palette.idleCore;
+    p.neonRim = palette.neonRim;
+    p.listeningCore = palette.listeningCore;
+    p.thinkingRim = palette.thinkingRim;
+    p.thinkingCore = palette.thinkingCore;
+    p.speakingCore = palette.speakingCore;
   }
 
   /** Live microphone level in [0, 1], fed by the mic analyser. */
