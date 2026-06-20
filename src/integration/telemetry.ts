@@ -87,6 +87,12 @@ export interface TelemetryOptions {
 const WAVE_W = 240;
 const WAVE_H = 64;
 
+export interface TranscriptEntry {
+  role: string;
+  text: string;
+  timestamp: number;
+}
+
 export class TelemetryPanels {
   private readonly refs: TelemetryRefs;
   private readonly now: () => number;
@@ -97,6 +103,8 @@ export class TelemetryPanels {
   private totalCost = 0;
   private turnCount = 0;
   private startMs: number | null = null;
+  private readonly transcriptEntries: TranscriptEntry[] = [];
+  onTranscriptChange: (() => void) | null = null;
 
   // Oscilloscope: a rolling history of the mic level, eased toward a decaying
   // target so it scrolls smoothly and settles flat when the mic is quiet.
@@ -130,10 +138,10 @@ export class TelemetryPanels {
   }
 
   /** Append a transcript line (role-tagged, XSS-safe via textContent). */
-  addTranscript(role: 'user' | 'q', text: string): void {
+  addTranscript(role: 'user' | 'q' | string, text: string): void {
     const host = this.refs.transcript;
     if (!host) return;
-    host.querySelector('.t-empty')?.remove(); // drop the "awaiting input" placeholder
+    host.querySelector('.t-empty')?.remove();
     const line = document.createElement('div');
     line.className = `t-line t-${role}`;
     const tag = document.createElement('span');
@@ -146,6 +154,15 @@ export class TelemetryPanels {
     host.appendChild(line);
     this.cap(host, this.maxTranscript);
     host.scrollTop = host.scrollHeight;
+    this.transcriptEntries.push({ role, text, timestamp: Date.now() });
+    if (this.transcriptEntries.length > this.maxTranscript) {
+      this.transcriptEntries.splice(0, this.transcriptEntries.length - this.maxTranscript);
+    }
+    this.onTranscriptChange?.();
+  }
+
+  getTranscriptEntries(): TranscriptEntry[] {
+    return [...this.transcriptEntries];
   }
 
   /** Update the activity indicator with the latest tool call. */

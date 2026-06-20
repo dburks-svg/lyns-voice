@@ -176,10 +176,71 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  // Dir history + transcript persistence (Phase 2 QOL): load via Tauri invoke.
+  const tauriGlobal = (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+  if (tauriGlobal) {
+    const tauri = tauriGlobal as {
+      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    };
+    const datalist = document.getElementById('dir-history');
+    void tauri.invoke('history_load').then((result) => {
+      const dirs = result as string[];
+      if (datalist && dirs.length > 0) {
+        for (const d of dirs) {
+          const opt = document.createElement('option');
+          opt.value = d;
+          datalist.appendChild(opt);
+        }
+      }
+    }).catch(() => undefined);
+
+    const origStartClaude = handle.startClaude.bind(handle);
+    handle.startClaude = async (dir?: string): Promise<boolean> => {
+      const ok = await origStartClaude(dir);
+      if (ok && dir) {
+        void tauri.invoke('history_load').then((result) => {
+          const dirs = result as string[];
+          const updated = [dir, ...dirs.filter((d) => d !== dir)].slice(0, 10);
+          void tauri.invoke('history_save', { dirs: updated }).catch(() => undefined);
+          if (datalist) {
+            datalist.innerHTML = '';
+            for (const d of updated) {
+              const opt = document.createElement('option');
+              opt.value = d;
+              datalist.appendChild(opt);
+            }
+          }
+        }).catch(() => undefined);
+      }
+      return ok;
+    };
+
+    const sessionId = crypto.randomUUID();
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedSave = (): void => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const entries = panels.getTranscriptEntries();
+        if (entries.length > 0) {
+          void tauri.invoke('transcript_save', { sessionId, entries }).catch(() => undefined);
+        }
+      }, 500);
+    };
+    panels.onTranscriptChange = debouncedSave;
+
+    void tauri.invoke('transcript_load_latest').then((result) => {
+      const entries = result as Array<{ role: string; text: string; timestamp: number }>;
+      for (const e of entries) {
+        panels.addTranscript(e.role, e.text);
+      }
+    }).catch(() => undefined);
+
+    void tauri.invoke('transcript_cleanup').catch(() => undefined);
+  }
+
   // Terminal windows: spawn draggable/resizable shells inside the app.
   const terminalLayer = document.getElementById('terminal-layer');
   const terminalBtn = document.getElementById('terminal-btn');
-  const tauriGlobal = (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
   if (terminalLayer && tauriGlobal) {
     const tauri = tauriGlobal as {
       invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;

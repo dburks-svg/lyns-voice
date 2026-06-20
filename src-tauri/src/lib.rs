@@ -1,7 +1,9 @@
 mod ci;
 mod claude;
+mod history;
 mod stt;
 mod terminal;
+mod transcript;
 mod tts;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,7 +37,12 @@ pub fn run() {
       terminal::terminal_write,
       terminal::terminal_kill,
       terminal::terminal_resize,
-      ci::ci_status
+      ci::ci_status,
+      history::history_load,
+      history::history_save,
+      transcript::transcript_save,
+      transcript::transcript_load_latest,
+      transcript::transcript_cleanup
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
