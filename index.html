@@ -9,13 +9,26 @@
   <body class="jarvis-app">
     <div id="avatar-root"></div>
 
-    <!-- Temporary debug cluster: cycles the four states until the STT/TTS/Claude
-         adapters drive them (Phases 1-3). Removed once the real loop lands. -->
-    <div id="debug" class="debug-cluster" aria-hidden="true">
+    <!-- Spoken reply caption: keeps replies READABLE even when audio is off.
+         Mood markers are stripped before they reach here. -->
+    <div id="caption" class="caption" aria-live="polite"></div>
+
+    <!-- Temporary debug cluster: cycles the four states and drives a manual
+         "speak" through native SAPI TTS until the STT/Claude adapters take over
+         (Phases 2-3). Removed once the real loop lands. -->
+    <div id="debug" class="debug-cluster">
       <button data-state="idle">idle</button>
       <button data-state="listening">listening</button>
       <button data-state="thinking">thinking</button>
       <button data-state="speaking">speaking</button>
+      <input
+        id="speak-input"
+        class="speak-input"
+        type="text"
+        placeholder="say something (try &lt;&lt;mood:happy&gt;&gt; hello)"
+        autocomplete="off"
+      />
+      <button id="speak-btn">speak</button>
     </div>
     <div id="status" class="status"></div>
 

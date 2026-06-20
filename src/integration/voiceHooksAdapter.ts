@@ -1,5 +1,5 @@
 import { Avatar, type AvatarOptions } from '../avatar/Avatar';
-import { AvatarController, type AvatarState } from '../avatar/AvatarController';
+import { AvatarController } from '../avatar/AvatarController';
 import { MicAnalyser } from '../audio/MicAnalyser';
 import { SpeechReactor } from '../audio/SpeechReactor';
 import { MediaTts } from '../audio/MediaTts';
@@ -8,30 +8,13 @@ import { parseMoodMarker } from '../mood/moodProtocol';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { TranscriptMoodObserver } from './transcriptMoodObserver';
 import { enableTakeover, type TakeoverHandle } from './takeover';
+import { deriveState, type VoiceSignals } from './signals';
 
-/**
- * Observable signals about the mcp-voice-hooks conversation, mapped to an avatar
- * state. Pure and unit-tested; the priority encodes the spec's behaviour:
- * speaking overrides listening overrides thinking overrides idle.
- */
-export interface VoiceSignals {
-  micActive: boolean;
-  speaking: boolean;
-  pendingResponse: boolean;
-}
-
-export function deriveState(signals: VoiceSignals): AvatarState {
-  if (signals.speaking) {
-    return 'speaking';
-  }
-  if (signals.micActive) {
-    return 'listening';
-  }
-  if (signals.pendingResponse) {
-    return 'thinking';
-  }
-  return 'idle';
-}
+// `VoiceSignals` + `deriveState` now live in the host-neutral `signals.ts` so the
+// Tauri adapter can share the exact same seam. Re-exported here for back-compat
+// with existing importers (index.ts, tests).
+export { deriveState };
+export type { VoiceSignals };
 
 export interface VoiceHooksHandle {
   avatar: Avatar;

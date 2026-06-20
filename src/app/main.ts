@@ -1,56 +1,67 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import {
-  Avatar,
-  AvatarController,
-  DEFAULT_CONFIG,
-  VERSION,
-  prefersReducedMotion,
-  type AvatarState,
-} from '../index';
+import { DEFAULT_CONFIG, VERSION, type AvatarState } from '../index';
+import { attachTauri } from '../integration/tauriAdapter';
 import headUrl from '../../vendor/head.glb?url';
 
 /**
- * Jarvis desktop app entry (Phase 0 scaffold).
+ * Jarvis desktop app entry.
  *
- * Mounts the avatar full-window in the native Tauri webview and runs the
- * controller-driven loop. A temporary debug cluster cycles the four states
- * until the STT / TTS / Claude adapters drive them (Phases 1-3). The avatar
- * rendering, state machine, and config are reused verbatim from the library;
- * only the host shell is new.
+ * Mounts the avatar full-window in the native Tauri webview through
+ * `attachTauri`, which owns the voice-signal seam and the TTS path. A temporary
+ * debug cluster cycles the four states and drives a manual "speak" until the
+ * STT (Phase 2) and Claude bridge (Phase 3) adapters take over. The avatar
+ * rendering, state machine, mood, and TTS are reused verbatim; only the shell is
+ * new.
  */
 function bootstrap(): void {
   const root = document.getElementById('avatar-root');
   if (!root) {
     return;
   }
+  const label = document.getElementById('status');
 
-  const avatar = new Avatar({
-    skin: DEFAULT_CONFIG.skin,
-    headUrl,
-    gltfLoaderFactory: () => new GLTFLoader(),
+  const handle = attachTauri({
+    root,
+    caption: document.getElementById('caption'),
+    avatarOptions: {
+      skin: DEFAULT_CONFIG.skin,
+      headUrl,
+      gltfLoaderFactory: () => new GLTFLoader(),
+    },
   });
-  avatar.reducedMotion = prefersReducedMotion(window);
-  avatar.mount(root);
-
-  const controller = new AvatarController({ avatar });
-  avatar.beforeRender = (time) => controller.tick(time);
-  avatar.start();
-
-  // The stage IS the window in the desktop app, so size the canvas to it.
-  const fit = (): void => avatar.resize(window.innerWidth, window.innerHeight);
-  fit();
-  window.addEventListener('resize', fit);
 
   for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-state]')) {
     button.addEventListener('click', () => {
       const next = button.dataset.state as AvatarState | undefined;
       if (next) {
-        controller.setState(next);
+        handle.setState(next);
       }
     });
   }
 
-  const label = document.getElementById('status');
+  // Phase 1 manual TTS trigger: speak the typed line through native SAPI. Try a
+  // mood tag (e.g. "<<mood:happy>> hello") to confirm it tints and is never heard
+  // or shown. The Claude bridge drives this same path in Phase 3.
+  const speakInput = document.getElementById('speak-input') as HTMLInputElement | null;
+  const speakButton = document.getElementById('speak-btn');
+  const doSpeak = (): void => {
+    const text = speakInput?.value.trim();
+    if (!text) {
+      return;
+    }
+    void handle.speak(text).then((ok) => {
+      if (!ok && label) {
+        label.textContent = 'voice unavailable (TTS failed)';
+      }
+    });
+  };
+  speakButton?.addEventListener('click', doSpeak);
+  speakInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      doSpeak();
+    }
+  });
+
   if (label) {
     label.textContent = `Jarvis v${VERSION}`;
   }

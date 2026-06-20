@@ -52,6 +52,34 @@ body.jarvis-app {
 .debug-cluster button:hover {
   background: rgba(40, 84, 134, 0.85);
 }
+.debug-cluster .speak-input {
+  background: rgba(8, 20, 36, 0.7);
+  color: #cfe8ff;
+  border: 1px solid #2a6fb0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  min-width: 220px;
+}
+.debug-cluster .speak-input::placeholder {
+  color: rgba(174, 227, 255, 0.45);
+}
+
+/* Spoken reply caption: large, readable, centered above the lower edge. */
+.caption {
+  position: fixed;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  max-width: min(80vw, 900px);
+  text-align: center;
+  font-size: clamp(18px, 2.6vw, 30px);
+  line-height: 1.35;
+  color: #dff1ff;
+  text-shadow: 0 0 18px rgba(0, 160, 255, 0.55);
+  pointer-events: none;
+  z-index: 5;
+}
 
 .status {
   position: fixed;
