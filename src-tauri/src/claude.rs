@@ -57,6 +57,23 @@ struct TurnEnd {
     is_error: bool,
 }
 
+/// A tool the assistant invoked this turn (drives the HUD activity feed).
+#[derive(Clone, Serialize)]
+struct Activity {
+    name: String,
+    target: String,
+}
+
+/// Per-turn token usage + cost from the `result` event (drives the HUD telemetry).
+#[derive(Clone, Serialize)]
+struct Usage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_creation_tokens: u64,
+    cost_usd: f64,
+}
+
 const CLAUDE_ARGS: &[&str] = &[
     "--print",
     "--input-format",
@@ -231,10 +248,11 @@ fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
     }
 }
 
-/// Tolerant parse of one stdout NDJSON line. Only `result` drives the UI; every
-/// other (and unknown) event keeps the current Thinking state. On a normal reply
-/// we do NOT emit a standalone thinking:false: turn-end -> speak() drives the
-/// Thinking->Speaking handoff with no intervening idle frame.
+/// Tolerant parse of one stdout NDJSON line. `result` drives the four-state UI
+/// (turn-end) plus the telemetry (usage); `assistant` feeds the activity HUD from
+/// its tool_use entries. Unknown events keep the current Thinking state. On a
+/// normal reply we do NOT emit a standalone thinking:false: turn-end -> speak()
+/// drives the Thinking->Speaking handoff with no intervening idle frame.
 fn handle_event(app: &AppHandle, line: &str) {
     let line = line.trim();
     if line.is_empty() {
@@ -244,18 +262,115 @@ fn handle_event(app: &AppHandle, line: &str) {
         Ok(v) => v,
         Err(_) => return,
     };
-    if v.get("type").and_then(Value::as_str) == Some("result") {
-        let text = v
-            .get("result")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false)
-            || v.get("subtype").and_then(Value::as_str) == Some("error");
-        if text.trim().is_empty() || is_error {
-            // No spoken reply will take over Thinking; clear it explicitly.
-            let _ = app.emit("claude://thinking", Active { active: false });
+    match v.get("type").and_then(Value::as_str) {
+        Some("assistant") => emit_tool_activity(app, &v),
+        Some("result") => {
+            emit_usage(app, &v);
+            let text = v
+                .get("result")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+                || v.get("subtype").and_then(Value::as_str) == Some("error");
+            if text.trim().is_empty() || is_error {
+                // No spoken reply will take over Thinking; clear it explicitly.
+                let _ = app.emit("claude://thinking", Active { active: false });
+            }
+            let _ = app.emit("claude://turn-end", TurnEnd { text, is_error });
         }
-        let _ = app.emit("claude://turn-end", TurnEnd { text, is_error });
+        _ => {}
     }
+}
+
+/// Emit `claude://activity` for each `tool_use` in an assistant message so the HUD
+/// can show what Claude is doing ("Read foo.ts", "Bash npm test", ...).
+fn emit_tool_activity(app: &AppHandle, v: &Value) {
+    let content = match v
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    {
+        Some(c) => c,
+        None => return,
+    };
+    for item in content {
+        if item.get("type").and_then(Value::as_str) != Some("tool_use") {
+            continue;
+        }
+        let name = item
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("tool")
+            .to_string();
+        let target = tool_target(&name, item.get("input"));
+        let _ = app.emit("claude://activity", Activity { name, target });
+    }
+}
+
+/// Pick a human-meaningful target from a tool's input (path, command, pattern, ...).
+fn tool_target(name: &str, input: Option<&Value>) -> String {
+    let input = match input {
+        Some(i) => i,
+        None => return String::new(),
+    };
+    let pick = |keys: &[&str]| -> String {
+        for k in keys {
+            if let Some(s) = input.get(*k).and_then(Value::as_str) {
+                return s.to_string();
+            }
+        }
+        String::new()
+    };
+    let raw = match name {
+        "Bash" => pick(&["command"]),
+        "Read" | "Edit" | "Write" | "MultiEdit" => pick(&["file_path"]),
+        "NotebookEdit" => pick(&["notebook_path"]),
+        "Grep" | "Glob" => pick(&["pattern"]),
+        "WebFetch" => pick(&["url"]),
+        "WebSearch" => pick(&["query"]),
+        "Task" => pick(&["description"]),
+        _ => pick(&[
+            "file_path",
+            "path",
+            "command",
+            "pattern",
+            "url",
+            "query",
+            "description",
+        ]),
+    };
+    shorten(&raw, 52)
+}
+
+/// Truncate to at most `max` chars, keeping the (more informative) tail.
+fn shorten(s: &str, max: usize) -> String {
+    let s = s.trim();
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        return s.to_string();
+    }
+    let tail: String = chars[chars.len() - (max - 1)..].iter().collect();
+    format!("\u{2026}{tail}")
+}
+
+/// Emit `claude://usage` from a `result` event's token counts + cost.
+fn emit_usage(app: &AppHandle, v: &Value) {
+    let usage = v.get("usage");
+    let get = |k: &str| -> u64 {
+        usage
+            .and_then(|u| u.get(k))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
+    let _ = app.emit(
+        "claude://usage",
+        Usage {
+            input_tokens: get("input_tokens"),
+            output_tokens: get("output_tokens"),
+            cache_read_tokens: get("cache_read_input_tokens"),
+            cache_creation_tokens: get("cache_creation_input_tokens"),
+            cost_usd: v.get("total_cost_usd").and_then(Value::as_f64).unwrap_or(0.0),
+        },
+    );
 }

@@ -50,37 +50,26 @@
          holographic orb; the footer carries the TAP TO TALK mic. -->
     <main class="stage">
       <aside class="col col-left">
-        <!-- Top-left: Python module -->
-        <section class="panel panel-python">
+        <!-- Top-left: live conversation transcript (you <-> Jarvis) -->
+        <section class="panel panel-transcript">
           <header class="panel-head">
             <span class="led"></span><span class="led"></span><span class="led"></span>
-            <span class="panel-title">Python</span>
+            <span class="panel-title">Transcript</span>
           </header>
-          <pre class="code"><span class="kw">import</span> claude_bridge <span class="kw">as</span> cc
-<span class="kw">from</span> jarvis <span class="kw">import</span> reactor, mood
-
-<span class="kw">def</span> <span class="fn">consciousness</span>(state):
-    core = reactor.spin(state)
-    mood.tint(core.glow)
-    <span class="kw">return</span> core.listen()</pre>
+          <div id="hud-transcript" class="transcript" aria-live="polite">
+            <div class="t-empty">awaiting voice input&hellip;</div>
+          </div>
         </section>
 
-        <!-- Bottom-left: Boot log + coordinate wave -->
-        <section class="panel panel-bootlog">
+        <!-- Bottom-left: live mic oscilloscope (telemetry injects the polyline) -->
+        <section class="panel panel-audio">
           <header class="panel-head">
-            <span class="panel-title">SYS_BOOT</span>
-            <span class="panel-tag">/var/log</span>
+            <span class="panel-title">Audio input</span>
+            <span class="panel-tag">mic</span>
           </header>
-          <svg class="wave" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
-            <polyline
-              class="wave-line"
-              points="0,40 16,38 32,30 48,44 64,22 80,34 96,12 112,40 128,30 144,48 160,20 176,36 192,26 208,42 224,18 240,32"
-            />
-            <line class="wave-axis" x1="0" y1="56" x2="240" y2="56" />
+          <svg id="hud-wave" class="wave" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+            <line class="wave-axis" x1="0" y1="61" x2="240" y2="61" />
           </svg>
-          <pre class="boot">[ <span class="ok">OK</span> ] neural_link.up
-[ <span class="ok">OK</span> ] audio_bus.sync
-[ <span class="busy">..</span> ] whisper.q drain</pre>
         </section>
       </aside>
 
@@ -89,39 +78,29 @@
       <div class="col-center" aria-hidden="true"></div>
 
       <aside class="col col-right">
-        <!-- Top-right: Network topography -->
-        <section class="panel panel-network">
+        <!-- Top-right: tool-activity feed (what Claude is doing this turn) -->
+        <section class="panel panel-activity">
           <header class="panel-head">
-            <span class="panel-title">Network topography</span>
+            <span class="panel-title">Activity</span>
+            <span class="panel-tag blink">&#9679;</span>
           </header>
-          <svg class="netgraph" viewBox="0 0 240 130" aria-hidden="true">
-            <g class="net-links">
-              <line x1="40" y1="30" x2="120" y2="64" />
-              <line x1="120" y1="64" x2="200" y2="28" />
-              <line x1="120" y1="64" x2="64" y2="104" />
-              <line x1="120" y1="64" x2="190" y2="100" />
-              <line x1="40" y1="30" x2="64" y2="104" />
-              <line x1="200" y1="28" x2="190" y2="100" />
-            </g>
-            <g class="net-nodes">
-              <circle cx="40" cy="30" r="5" />
-              <circle cx="200" cy="28" r="5" />
-              <circle cx="120" cy="64" r="7" class="net-hub" />
-              <circle cx="64" cy="104" r="5" />
-              <circle cx="190" cy="100" r="5" />
-            </g>
-          </svg>
+          <div id="hud-activity" class="activity" aria-live="polite">
+            <div class="a-empty">idle&hellip;</div>
+          </div>
         </section>
 
-        <!-- Bottom-right: Core integrity terminal -->
-        <section class="panel panel-core">
+        <!-- Bottom-right: session telemetry (tokens / cost / turns / uptime) -->
+        <section class="panel panel-session">
           <header class="panel-head">
-            <span class="panel-title">CORE</span>
-            <span class="panel-tag blink">●</span>
+            <span class="panel-title">Session</span>
           </header>
-          <pre class="term">CORE_INTEGRITY: <span class="val">99.8%</span>
-NLP_BUFFER: <span class="ok">ACTIVE</span>
-NLOG CODEE: <span class="val">500</span></pre>
+          <dl class="stats">
+            <div class="stat"><dt>TOKENS IN</dt><dd id="hud-tokens-in" class="val">0</dd></div>
+            <div class="stat"><dt>TOKENS OUT</dt><dd id="hud-tokens-out" class="val">0</dd></div>
+            <div class="stat"><dt>COST</dt><dd id="hud-cost" class="val">$0.00</dd></div>
+            <div class="stat"><dt>TURNS</dt><dd id="hud-turns" class="val">0</dd></div>
+            <div class="stat"><dt>UPTIME</dt><dd id="hud-uptime" class="val">0:00</dd></div>
+          </dl>
         </section>
       </aside>
 

@@ -34,6 +34,24 @@ type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
 /** Minimal shape of Tauri's `invoke`; injectable so the unit tests stay headless. */
 export type InvokeFn = <T>(cmd: string, args?: InvokeArgs) => Promise<T>;
 
+/** Who said a transcript line: the user (mic) or Jarvis (spoken reply). */
+export type TranscriptRole = 'user' | 'jarvis';
+
+/** A tool Claude invoked this turn (from `claude://activity`); feeds the HUD. */
+export interface ClaudeActivity {
+  name: string;
+  target: string;
+}
+
+/** Per-turn token usage + cost (from `claude://usage`); feeds the HUD telemetry. */
+export interface ClaudeUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  cost_usd: number;
+}
+
 /** Minimal shape of Tauri's event `listen`; injectable for the same reason. */
 export type ListenFn = <T>(event: string, handler: (payload: T) => void) => Promise<() => void>;
 
@@ -126,6 +144,14 @@ export interface TauriAdapterOptions {
   listen?: ListenFn;
   /** Called with each finalized STT utterance (Phase 3 wires this to Claude). */
   onUtterance?: (text: string) => void;
+  /** Transcript stream: user utterances and spoken Jarvis replies (HUD chat). */
+  onTranscript?: (role: TranscriptRole, text: string) => void;
+  /** Each tool Claude invokes this turn (HUD activity feed). */
+  onActivity?: (activity: ClaudeActivity) => void;
+  /** Per-turn token usage + cost (HUD telemetry). */
+  onUsage?: (usage: ClaudeUsage) => void;
+  /** Live mic frequency bands per audio frame (HUD waveform). */
+  onBands?: (bands: Float32Array) => void;
   /** Injectable window; defaults to the global `window`. */
   view?: Window;
 }
@@ -268,6 +294,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       mood.setMood(parsed.mood);
     }
     safeSetText(options.caption ?? null, parsed.stripped);
+    options.onTranscript?.('jarvis', parsed.stripped); // HUD chat log
     const chunks = splitForSpeech(parsed.stripped);
     if (chunks.length === 0) {
       return true;
@@ -288,7 +315,10 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       void invoke('stt_push_frame', frame.buffer as ArrayBuffer).catch(() => undefined);
     },
     onLevel: (level) => controller.setMicLevel(level),
-    onBands: (bands) => controller.setMicBands(bands),
+    onBands: (bands) => {
+      controller.setMicBands(bands);
+      options.onBands?.(bands); // HUD waveform reads the live mic spectrum
+    },
   });
 
   // The Listening STATE follows the mic being engaged (set in start/stopListening),
@@ -312,6 +342,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         return;
       }
       safeSetText(options.caption ?? null, text);
+      options.onTranscript?.('user', text); // HUD chat log
       // Lock the turn synchronously NOW (before claude://thinking round-trips), so
       // a back-to-back utterance is rejected by the guard above. Clear it if the
       // submit IPC rejects, so a failed submit never wedges the UI in Thinking.
@@ -324,6 +355,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       });
     } else {
       safeSetText(options.caption ?? null, text);
+      options.onTranscript?.('user', text); // HUD chat log
       options.onUtterance?.(text);
     }
   });
@@ -372,6 +404,9 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     signals.pendingResponse = p.active;
     sync();
   });
+  // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
+  addListener<ClaudeActivity>('claude://activity', (p) => options.onActivity?.(p));
+  addListener<ClaudeUsage>('claude://usage', (p) => options.onUsage?.(p));
   addListener<{ text: string; is_error: boolean }>('claude://turn-end', (p) => {
     const text = (p.text ?? '').trim();
     if (!text || p.is_error) {

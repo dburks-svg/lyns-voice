@@ -1,14 +1,16 @@
 import { VERSION, type AvatarState } from '../index';
 import { attachTauri } from '../integration/tauriAdapter';
+import { TelemetryPanels } from '../integration/telemetry';
 
 /**
  * Jarvis desktop app entry.
  *
- * Mounts the holographic SVG orb into the FUI stage through `attachTauri`, which
- * owns the voice-signal seam and the TTS path. The top HUD cluster cycles the
- * four states and drives a manual "speak" until the STT (Phase 2) and Claude
- * bridge (Phase 3) adapters take over. The state machine, mood, and TTS are
- * reused verbatim; only the renderer (SVG) and the shell are new.
+ * Mounts the holographic orb into the FUI stage through `attachTauri`, which owns
+ * the voice-signal seam and the TTS path, and wires the four telemetry panels
+ * (transcript / activity / session / waveform) to the live voice loop. The top
+ * HUD cluster cycles the four states and drives a manual "speak" until the STT
+ * (Phase 2) and Claude bridge (Phase 3) adapters take over. The state machine,
+ * mood, and TTS are reused verbatim; only the renderer and the shell are new.
  */
 function bootstrap(): void {
   const root = document.getElementById('avatar-root');
@@ -17,9 +19,36 @@ function bootstrap(): void {
   }
   const label = document.getElementById('status');
 
+  const byId = (id: string): HTMLElement | null => document.getElementById(id);
+  const panels = new TelemetryPanels({
+    transcript: byId('hud-transcript'),
+    activity: byId('hud-activity'),
+    wave: document.getElementById('hud-wave') as unknown as SVGElement | null,
+    tokensIn: byId('hud-tokens-in'),
+    tokensOut: byId('hud-tokens-out'),
+    cost: byId('hud-cost'),
+    turns: byId('hud-turns'),
+    uptime: byId('hud-uptime'),
+  });
+  panels.startUptime();
+  // One light rAF drives the oscilloscope every frame and the uptime ~4x/sec.
+  let uptimeThrottle = 0;
+  const tickPanels = (): void => {
+    panels.tickWave();
+    if ((uptimeThrottle = (uptimeThrottle + 1) % 15) === 0) {
+      panels.tickUptime();
+    }
+    requestAnimationFrame(tickPanels);
+  };
+  requestAnimationFrame(tickPanels);
+
   const handle = attachTauri({
     root,
     caption: document.getElementById('caption'),
+    onTranscript: (role, text) => panels.addTranscript(role, text),
+    onActivity: (a) => panels.addActivity(a.name, a.target),
+    onUsage: (u) => panels.addUsage(u),
+    onBands: (bands) => panels.pushBands(bands),
   });
 
   for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-state]')) {

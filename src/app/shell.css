@@ -248,36 +248,8 @@ body[data-state="speaking"] {
   opacity: 0.35;
 }
 
-/* Code + terminal text */
-.code,
-.term,
-.boot {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.55;
-  white-space: pre;
-  overflow: hidden;
-  color: #7fe9d0; /* soft green-cyan, like the mockup snippet */
-}
-.code .kw {
-  color: var(--accent);
-}
-.code .fn {
-  color: #eaffff;
-}
-.term {
-  color: var(--accent);
-}
-.term .val {
-  color: #eafbff;
-  text-shadow: 0 0 6px var(--accent-soft);
-}
 .ok {
   color: #4dffc3;
-}
-.busy {
-  color: #ffd166;
 }
 .blink {
   color: var(--accent);
@@ -289,16 +261,92 @@ body[data-state="speaking"] {
   }
 }
 
-/* Boot-log coordinate wave */
+/* Transcript panel: a scrolling conversation log (you <-> Jarvis). */
+.transcript,
+.activity {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-height: 168px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-soft) transparent;
+}
+.transcript::-webkit-scrollbar,
+.activity::-webkit-scrollbar {
+  width: 5px;
+}
+.transcript::-webkit-scrollbar-thumb,
+.activity::-webkit-scrollbar-thumb {
+  background: var(--accent-faint);
+  border-radius: 3px;
+}
+.t-empty,
+.a-empty {
+  color: var(--ink-dim);
+  font-style: italic;
+  opacity: 0.6;
+}
+.t-line {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.t-role {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-align: right;
+  padding-top: 1px;
+  opacity: 0.85;
+}
+.t-user .t-role {
+  color: var(--ink-dim);
+}
+.t-jarvis .t-role {
+  color: var(--accent);
+  text-shadow: 0 0 6px var(--accent-soft);
+}
+.t-text {
+  color: #cfe9f5;
+  word-break: break-word;
+}
+.t-jarvis .t-text {
+  color: #eafaff;
+}
+
+/* Activity feed: each tool Claude runs this turn. */
+.a-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.a-name {
+  color: var(--accent);
+  text-shadow: 0 0 6px var(--accent-soft);
+  flex: 0 0 auto;
+}
+.a-target {
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Audio oscilloscope. */
 .wave {
   width: 100%;
-  height: 52px;
-  margin-bottom: 8px;
+  height: 92px;
 }
 .wave-line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
   filter: drop-shadow(0 0 4px var(--accent-soft));
 }
 .wave-axis {
@@ -306,24 +354,31 @@ body[data-state="speaking"] {
   stroke-width: 1;
 }
 
-/* Network topography graph */
-.netgraph {
-  width: 100%;
-  height: auto;
+/* Session telemetry: tokens / cost / turns / uptime. */
+.stats {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
-.net-links line {
-  stroke: var(--accent-soft);
-  stroke-width: 1;
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
 }
-.net-nodes circle {
-  fill: #04121e;
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  filter: drop-shadow(0 0 4px var(--accent-soft));
+.stat dt {
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+  font-size: 10px;
 }
-.net-nodes .net-hub {
-  fill: var(--accent);
-  filter: drop-shadow(0 0 8px var(--accent));
+.stat dd {
+  margin: 0;
+  color: #eafbff;
+  text-shadow: 0 0 6px var(--accent-soft);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------------
