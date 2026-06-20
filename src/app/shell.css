@@ -8,9 +8,10 @@
 :root {
   color-scheme: dark;
   --bg: #05070b;
-  --accent: #00f0ff; /* neon cyan; shifted per state below */
-  --accent-soft: rgba(0, 240, 255, 0.45);
-  --accent-faint: rgba(0, 240, 255, 0.14);
+  --accent-rgb: 0, 240, 255;
+  --accent: rgb(var(--accent-rgb));
+  --accent-soft: rgba(var(--accent-rgb), 0.45);
+  --accent-faint: rgba(var(--accent-rgb), 0.14);
   --glass: rgba(5, 15, 25, 0.45);
   --ink: #aee7ff;
   --ink-dim: rgba(174, 231, 255, 0.55);
@@ -41,13 +42,13 @@ body.q-app {
    Pure cosmetic tint of the whole FUI; the orb itself is driven by the
    controller independently. */
 body[data-state="listening"] {
-  --accent: #00f0ff;
+  --accent: rgb(var(--accent-rgb));
 }
 body[data-state="thinking"] {
-  --accent: #33e0ff;
+  --accent: rgb(var(--accent-rgb));
 }
 body[data-state="speaking"] {
-  --accent: #4ab8ff;
+  --accent: rgb(var(--accent-rgb));
 }
 
 /* ---------------------------------------------------------------------
@@ -178,11 +179,11 @@ body[data-state="speaking"] {
 .hud-gear.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(0, 240, 255, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .hud-bar button:not(.hud-gear) {
-  background: rgba(0, 240, 255, 0.06);
+  background: rgba(var(--accent-rgb), 0.06);
   color: var(--ink);
   border: 1px solid var(--accent-soft);
   border-radius: 3px;
@@ -195,7 +196,7 @@ body[data-state="speaking"] {
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 .hud-bar button:not(.hud-gear):hover {
-  background: rgba(0, 240, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
   box-shadow: 0 0 10px var(--accent-faint);
 }
 
@@ -250,7 +251,7 @@ body[data-state="speaking"] {
   gap: 6px;
 }
 .settings-drawer button {
-  background: rgba(0, 240, 255, 0.06);
+  background: rgba(var(--accent-rgb), 0.06);
   color: var(--ink);
   border: 1px solid var(--accent-soft);
   border-radius: 3px;
@@ -263,11 +264,11 @@ body[data-state="speaking"] {
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 .settings-drawer button:hover {
-  background: rgba(0, 240, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
   box-shadow: 0 0 10px var(--accent-faint);
 }
 .settings-drawer button.active {
-  background: rgba(0, 240, 255, 0.22);
+  background: rgba(var(--accent-rgb), 0.22);
   color: #eafbff;
   border-color: var(--accent);
   box-shadow: 0 0 12px var(--accent-soft);
@@ -425,7 +426,7 @@ body[data-state="speaking"] {
   font-size: 12px;
   line-height: 1.5;
   overflow: hidden;
-  box-shadow: 0 0 26px rgba(0, 240, 255, 0.07);
+  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.07);
 }
 .panel::before {
   content: "";
@@ -601,28 +602,28 @@ body[data-state="speaking"] {
   height: 58px;
   padding: 14px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.22), rgba(4, 14, 24, 0.85) 70%);
+  background: radial-gradient(circle at 50% 45%, rgba(var(--accent-rgb), 0.22), rgba(4, 14, 24, 0.85) 70%);
   border: 1.5px solid var(--accent);
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  box-shadow: 0 0 14px var(--accent-soft), inset 0 0 10px rgba(0, 240, 255, 0.12);
+  box-shadow: 0 0 14px var(--accent-soft), inset 0 0 10px rgba(var(--accent-rgb), 0.12);
   transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 .mic-button:hover .mic-icon {
-  box-shadow: 0 0 22px var(--accent), inset 0 0 14px rgba(0, 240, 255, 0.2);
+  box-shadow: 0 0 22px var(--accent), inset 0 0 14px rgba(var(--accent-rgb), 0.2);
   transform: translateY(-1px);
 }
 .mic-button.active .mic-icon {
-  background: radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.5), rgba(4, 14, 24, 0.85) 72%);
-  box-shadow: 0 0 30px var(--accent), inset 0 0 16px rgba(0, 240, 255, 0.3);
+  background: radial-gradient(circle at 50% 45%, rgba(var(--accent-rgb), 0.5), rgba(4, 14, 24, 0.85) 72%);
+  box-shadow: 0 0 30px var(--accent), inset 0 0 16px rgba(var(--accent-rgb), 0.3);
   animation: micPulse 1.4s ease-in-out infinite;
 }
 @keyframes micPulse {
   50% {
-    box-shadow: 0 0 40px var(--accent), inset 0 0 20px rgba(0, 240, 255, 0.4);
+    box-shadow: 0 0 40px var(--accent), inset 0 0 20px rgba(var(--accent-rgb), 0.4);
   }
 }
 .mic-label {

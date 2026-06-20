@@ -1,5 +1,5 @@
 import { VERSION } from '../index';
-import { type ThemeName } from '../config/config';
+import { THEME_PALETTES, type ThemeName } from '../config/config';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
@@ -159,9 +159,28 @@ async function bootstrap(): Promise<void> {
   // --- Settings controls ---
   wireSettings(settings);
 
-  // Apply saved theme on startup and wire buttons to switch it live
-  if (settings.theme && settings.theme !== 'cyan') {
-    handle.setTheme(settings.theme as ThemeName);
+  // Apply saved theme on startup and wire buttons to switch it live.
+  // The orb gets its palette via controller.setPalette; the HUD gets its
+  // accent via CSS custom properties set on :root here.
+  const applyThemeCss = (theme: ThemeName): void => {
+    const palette = THEME_PALETTES[theme];
+    if (!palette) return;
+    const hex = palette.neonRim;
+    const r = (hex >> 16) & 0xff;
+    const g = (hex >> 8) & 0xff;
+    const b = hex & 0xff;
+    const root = document.documentElement;
+    root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+    root.style.setProperty('--accent', `rgb(${r}, ${g}, ${b})`);
+    root.style.setProperty('--accent-soft', `rgba(${r}, ${g}, ${b}, 0.45)`);
+    root.style.setProperty('--accent-faint', `rgba(${r}, ${g}, ${b}, 0.14)`);
+  };
+
+  if (settings.theme) {
+    applyThemeCss(settings.theme as ThemeName);
+    if (settings.theme !== 'cyan') {
+      handle.setTheme(settings.theme as ThemeName);
+    }
   }
   for (const btn of document.querySelectorAll<HTMLButtonElement>('.theme-btn')) {
     if (btn.dataset.theme === settings.theme) {
@@ -171,6 +190,7 @@ async function bootstrap(): Promise<void> {
     btn.addEventListener('click', () => {
       const theme = btn.dataset.theme as ThemeName;
       handle.setTheme(theme);
+      applyThemeCss(theme);
       settings.theme = theme;
       saveSettings(settings);
       for (const b of document.querySelectorAll('.theme-btn')) b.classList.remove('active');

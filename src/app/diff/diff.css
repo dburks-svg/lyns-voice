@@ -14,7 +14,7 @@
   -webkit-backdrop-filter: blur(9px);
   clip-path: var(--notch);
   box-shadow:
-    0 0 26px rgba(0, 240, 255, 0.07),
+    0 0 26px rgba(var(--accent-rgb), 0.07),
     0 8px 32px rgba(0, 0, 0, 0.4);
 
   min-width: 300px;
@@ -121,7 +121,7 @@
   color: var(--accent);
   padding: 3px 6px;
   margin-bottom: 2px;
-  background: rgba(0, 240, 255, 0.04);
+  background: rgba(var(--accent-rgb), 0.04);
   border-left: 2px solid var(--accent-soft);
   text-shadow: 0 0 6px var(--accent-soft);
   white-space: nowrap;
