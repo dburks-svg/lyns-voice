@@ -52,6 +52,11 @@ body.jarvis-app {
 .debug-cluster button:hover {
   background: rgba(40, 84, 134, 0.85);
 }
+.debug-cluster button.active {
+  background: #1f6feb;
+  color: #eaf4ff;
+  border-color: #6fb4ff;
+}
 .debug-cluster .speak-input {
   background: rgba(8, 20, 36, 0.7);
   color: #cfe8ff;

@@ -62,6 +62,26 @@ function bootstrap(): void {
     }
   });
 
+  // Phase 2: tap-to-talk. Mic capture + local Whisper STT auto-finalize on a
+  // pause; the recognized text appears in the caption. (Phase 3 sends it to Claude.)
+  const micButton = document.getElementById('mic-btn');
+  micButton?.addEventListener('click', () => {
+    if (handle.isListening()) {
+      handle.stopListening();
+      micButton.textContent = 'talk';
+      micButton.classList.remove('active');
+      return;
+    }
+    void handle.startListening().then((ok) => {
+      if (ok) {
+        micButton.textContent = 'stop';
+        micButton.classList.add('active');
+      } else if (label) {
+        label.textContent = 'mic permission denied';
+      }
+    });
+  });
+
   if (label) {
     label.textContent = `Jarvis v${VERSION}`;
   }

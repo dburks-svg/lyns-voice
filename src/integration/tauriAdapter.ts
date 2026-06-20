@@ -17,13 +17,20 @@
 import { Avatar, type AvatarOptions } from '../avatar/Avatar';
 import { AvatarController, type AvatarState } from '../avatar/AvatarController';
 import { MediaTts, type MediaTtsOptions } from '../audio/MediaTts';
+import { SttCapture } from '../audio/SttCapture';
 import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { deriveState, type VoiceSignals } from './signals';
 
+/** Args accepted by `invoke`: a JSON record, or a raw binary body (audio frames). */
+type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
+
 /** Minimal shape of Tauri's `invoke`; injectable so the unit tests stay headless. */
-export type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+export type InvokeFn = <T>(cmd: string, args?: InvokeArgs) => Promise<T>;
+
+/** Minimal shape of Tauri's event `listen`; injectable for the same reason. */
+export type ListenFn = <T>(event: string, handler: (payload: T) => void) => Promise<() => void>;
 
 /** The injectable `fetchImpl` shape `MediaTts` accepts (without exporting its internals). */
 type FetchImpl = NonNullable<MediaTtsOptions['fetchImpl']>;
@@ -89,6 +96,10 @@ export interface TauriAdapterOptions {
   avatarOptions?: AvatarOptions;
   /** Injectable `invoke`; defaults to lazy `@tauri-apps/api/core`. */
   invoke?: InvokeFn;
+  /** Injectable event `listen`; defaults to lazy `@tauri-apps/api/event`. */
+  listen?: ListenFn;
+  /** Called with each finalized STT utterance (Phase 3 wires this to Claude). */
+  onUtterance?: (text: string) => void;
   /** Injectable window; defaults to the global `window`. */
   view?: Window;
 }
@@ -98,6 +109,12 @@ export interface TauriHandle {
   controller: AvatarController;
   /** Speak a (possibly mood-tagged) line: tint by mood, caption it, synth + animate. */
   speak(text: string): Promise<boolean>;
+  /** Start mic capture + the Rust STT worker (call from a user gesture). */
+  startListening(): Promise<boolean>;
+  /** Stop mic capture + the STT worker. */
+  stopListening(): void;
+  /** Whether the mic is currently capturing. */
+  isListening(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
   setState(state: AvatarState): void;
   dispose(): void;
@@ -183,12 +200,87 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     return handled;
   };
 
+  // --- STT (Phase 2): local Whisper + VAD auto-send-on-pause ----------------
+  const listen = options.listen ?? defaultListen;
+
+  // One mic stream, dual-tapped: the analyser drives the Listening visual, the
+  // worklet pushes 16 kHz Int16 frames to the Rust VAD/STT worker.
+  const capture = new SttCapture({
+    onFrame: (frame) => {
+      // Raw binary body (NOT a JSON number array): pass the ArrayBuffer directly.
+      void invoke('stt_push_frame', frame.buffer as ArrayBuffer).catch(() => undefined);
+    },
+    onLevel: (level) => controller.setMicLevel(level),
+    onBands: (bands) => controller.setMicBands(bands),
+  });
+
+  // The Listening STATE follows the mic being engaged (set in start/stopListening),
+  // not the per-phrase VAD: the live amplitude (onLevel) already drives the
+  // reaction, so coupling the state to VAD onset/offset would only strobe it to
+  // idle during the inter-phrase pauses. `stt://final` delivers the recognized
+  // utterance on a pause.
+  const unlisteners: Array<() => void> = [];
+  const addListener = <T>(event: string, handler: (payload: T) => void): void => {
+    void listen<T>(event, handler).then((un) => unlisteners.push(un));
+  };
+  addListener<{ text: string }>('stt://final', (p) => {
+    const text = (p.text ?? '').trim();
+    if (!text) {
+      return;
+    }
+    safeSetText(options.caption ?? null, text);
+    options.onUtterance?.(text);
+  });
+  addListener<{ state: string; downloaded: number; total: number }>('stt://model', (p) => {
+    if (p.state === 'downloading') {
+      const pct = p.total > 0 ? Math.floor((p.downloaded / p.total) * 100) : 0;
+      safeSetText(options.caption ?? null, `Downloading speech model… ${pct}%`);
+    } else if (p.state === 'ready') {
+      safeSetText(options.caption ?? null, '');
+    } else if (p.state === 'error') {
+      // A download/load failure: clear the stuck "Downloading…" caption and drop
+      // out of Listening rather than hanging there forever.
+      safeSetText(options.caption ?? null, 'Speech model unavailable (see logs)');
+      signals.micActive = false;
+      sync();
+    }
+  });
+  addListener<{ text: string }>('stt://error', (p) => {
+    console.warn('[tauri-stt]', p.text);
+  });
+
+  const startListening = async (): Promise<boolean> => {
+    mediaTts.unlock();
+    // Kick off the Rust worker (loads/downloads the model on first run); capture
+    // begins in parallel (early frames before the worker exists are dropped).
+    void invoke('stt_start').catch((e: unknown) => console.warn('[tauri-stt] start', e));
+    const ok = await capture.start();
+    if (ok) {
+      signals.micActive = true; // mic engaged => Listening (see note above)
+      sync();
+    }
+    return ok;
+  };
+  const stopListening = (): void => {
+    capture.stop();
+    void invoke('stt_stop').catch(() => undefined);
+    signals.micActive = false;
+    sync();
+  };
+
   return {
     avatar,
     controller,
     speak,
+    startListening,
+    stopListening,
+    isListening: () => capture.isActive,
     setState: (state) => controller.setState(state),
     dispose: () => {
+      capture.stop();
+      for (const un of unlisteners) {
+        un();
+      }
       mediaTts.dispose();
       view.document.removeEventListener('pointerdown', unlockAudio, true);
       view.removeEventListener('resize', fit);
@@ -198,7 +290,16 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
 }
 
 /** Lazy default `invoke`; dynamic import keeps `@tauri-apps/api` out of the demo/test graph. */
-async function defaultInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function defaultInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<T>(cmd, args);
+}
+
+/** Lazy default `listen`; resolves each event's `payload` to the handler. */
+async function defaultListen<T>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<T>(event, (e) => handler(e.payload));
 }
