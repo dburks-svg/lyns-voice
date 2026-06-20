@@ -1,27 +1,36 @@
 import { defineConfig } from 'vite';
 
 /**
- * Dev server + demo build.
+ * Dev server + build for the Jarvis desktop app (Tauri webview) and the
+ * standalone demo.
  *
- * The standalone demo (`demo/index.html`) imports the avatar source directly
- * through Vite for fast iteration. The production/injected artifact is built
- * separately by `vite.lib.config.ts` as a global IIFE.
+ * The app entry is the root `index.html`; the host-free demo stays at
+ * `/demo/`. Both import the avatar source directly through Vite, with npm
+ * `three` as a normal ESM dependency. Bound to localhost only.
  *
- * Bound to localhost only (no `0.0.0.0`) so the dev server is never exposed on
- * the LAN.
+ * `strictPort` is required so Tauri's `devUrl` (http://localhost:5173) never
+ * drifts out from under the desktop shell. `clearScreen: false` keeps Tauri's
+ * compile logs visible.
  */
 export default defineConfig({
   root: '.',
+  clearScreen: false,
+  envPrefix: ['VITE_', 'TAURI_ENV_'],
   server: {
     host: '127.0.0.1',
     port: 5173,
-    strictPort: false,
-    // Auto-open is intentionally off: the e2e runner starts this server
-    // headlessly, and the demo browser is opened explicitly when desired.
+    strictPort: true,
     open: false,
   },
   build: {
-    outDir: 'dist-demo',
+    outDir: 'dist',
     emptyOutDir: true,
+    target: 'esnext',
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        demo: 'demo/index.html',
+      },
+    },
   },
 });

@@ -23,3 +23,10 @@ Thumbs.db
 
 # Local Claude Code hook config (written by mcp-voice-hooks install-hooks)
 .claude/
+
+# Local cargo build override (machine-specific target dir; works around AV
+# blocking build-script exes under D:\, see .cargo/config.toml)
+.cargo/config.toml
+
+# Tauri Rust build output (in case target-dir ever resolves locally)
+src-tauri/target/

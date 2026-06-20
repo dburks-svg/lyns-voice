@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jarvis</title>
+    <link rel="stylesheet" href="/src/app/shell.css" />
+  </head>
+  <body class="jarvis-app">
+    <div id="avatar-root"></div>
+
+    <!-- Temporary debug cluster: cycles the four states until the STT/TTS/Claude
+         adapters drive them (Phases 1-3). Removed once the real loop lands. -->
+    <div id="debug" class="debug-cluster" aria-hidden="true">
+      <button data-state="idle">idle</button>
+      <button data-state="listening">listening</button>
+      <button data-state="thinking">thinking</button>
+      <button data-state="speaking">speaking</button>
+    </div>
+    <div id="status" class="status"></div>
+
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>
