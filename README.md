@@ -25,14 +25,31 @@ preserved; the shell is now a real window.
   the orb, HUD, and mood tints; persisted across sessions.
 - **Spawnable terminal windows:** floating, draggable, resizable shells with tabbed sessions,
   so you can work alongside the voice loop without leaving Q.
+- **Diff viewer:** a floating panel that shows file diffs from Claude's Edit/Write tools
+  in real time, with syntax-highlighted additions and deletions.
+- **CI status dots:** green/yellow/red indicators in the session strip that reflect your
+  latest GitHub Actions run status.
 - **Settings panel:** configure TTS voice/speed/pitch, mic device, VAD pause sensitivity,
   and theme; all changes persist to localStorage and take effect immediately.
-- **Live telemetry panels** (draggable, resizable), fed by the voice loop:
-  - **Transcript** (you and Q)
-  - **Session strip** (accumulated tokens in/out, cost, turns, uptime, latest activity)
+- **Live telemetry panels** (draggable, resizable, snap-to-edge), fed by the voice loop:
+  - **Transcript** (you and Q, with right-click copy and session persistence)
+  - **Session strip** (accumulated tokens in/out, cost, turns, uptime, latest activity, CI)
   - **Audio** (a live oscilloscope of your microphone)
 - A **mood layer**: Claude emits a tiny `<<mood:NAME>>` tag that tints the orb and is always
   stripped before it is spoken or shown. See [Mood](#mood).
+- **Keyboard shortcuts:** Alt+T (terminal), Alt+D (diffs), Alt+S (settings), Alt+M (mini
+  mode), Escape (close topmost panel), Space (toggle mic). Focus-aware: suppressed when
+  typing in inputs or terminals.
+- **Compact PiP mode:** shrink Q to a tiny 180x180 always-on-top orb window. Click restore
+  or press Alt+M to return to full size.
+- **Auto-reconnect:** if the Claude sidecar exits unexpectedly, Q retries with exponential
+  backoff (up to 5 attempts). User-initiated disconnect never triggers reconnect.
+- **Project dir history:** your recent project directories (up to 10) appear in a dropdown
+  on the Claude connect input, persisted across sessions.
+- **Transcript persistence:** conversation history is saved per session and restored on
+  the next launch, with 7-day retention.
+- **System notifications:** when Q is backgrounded and Claude finishes a turn, a Windows
+  toast and taskbar flash let you know.
 - **Local and low-cost:** speech recognition and synthesis run on-device with no cloud
   speech and no CDN; Claude itself runs through your existing `claude` login.
 
@@ -114,6 +131,9 @@ silently removed. With no tag it stays neutral. Add the one-line convention to y
 src/
   app/                     Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html
     terminal/              TerminalPanel, TerminalInstance, TerminalManager, dragResize, CSS
+    diff/                  DiffPanel (floating diff viewer for Claude Edit/Write tools)
+    shortcuts.ts           Keyboard shortcut dispatcher (Alt+T/D/S/M, Esc, Space)
+    mini-mode.ts           Compact PiP mode (window resize + always-on-top)
   avatar/
     QOrbAvatar.ts          Adapter: drives the orb through the ControllableAvatar seam
     jarvisOrb/             Vendored MIT Three.js orb (renderer.ts + states.ts; see its LICENSE)
@@ -122,7 +142,8 @@ src/
   audio/                   MediaTts (WAV playback + amplitude), SttCapture, MicAnalyser, bands
   integration/
     tauriAdapter.ts        The voice seam: Tauri events -> signals -> controller; TTS/STT/Claude
-    telemetry.ts           Transcript panel + session strip activity indicator
+                           + auto-reconnect + background notifications
+    telemetry.ts           Transcript panel (with persistence hooks) + session strip
     signals.ts             Pure VoiceSignals -> deriveState
   mood/                    mood tag parser, color blend, MoodController
   config/                  AvatarConfig, PaletteConfig, ThemeName, THEME_PALETTES, store
@@ -131,8 +152,11 @@ demo/                      Host-free harness (the legacy Three.js reactor/head +
 src-tauri/                 Rust backend
   src/tts.rs               Native Windows SAPI synth -> WAV buffer (no PowerShell)
   src/stt.rs               Mic frames -> webrtc-vad endpointing -> whisper-rs transcription
-  src/claude.rs            The claude CLI stream-json sidecar + event parsing
+  src/claude.rs            The claude CLI stream-json sidecar + event parsing + diff emit
   src/terminal.rs          cmd.exe sessions (spawn/write/kill)
+  src/ci.rs                GitHub Actions status polling via gh CLI
+  src/history.rs           Recent project dir persistence (app_data_dir)
+  src/transcript.rs        Transcript save/load/cleanup (app_data_dir/transcripts/)
   tauri.conf.json          Window, strict CSP, NSIS bundle
 ```
 
@@ -155,6 +179,13 @@ entire voice loop drive it with no changes.
   friction the old browser path hit.
 - `getUserMedia` is audio-only, least-privilege, and cancellation-safe; the `<<mood:...>>`
   parser is bounded, and all rendered text uses `textContent` (never `innerHTML`).
+- Notification body is a **fixed string literal** ("Response ready."), never user or
+  response content.
+- Clipboard writes are **user-gesture-gated** (inside click handlers only).
+- Auto-reconnect is **bounded** (max 5 attempts, exponential backoff with 30s cap) and
+  always reapplies the full `dontAsk` security policy on each reconnect.
+- File persistence (dir history, transcripts) writes **only to `app_data_dir`** with input
+  validation, atomic writes, and bounded retention.
 - No API key is stored (the app uses your existing `claude` login); `npm audit` is clean.
 
 ## Scripts
@@ -171,20 +202,22 @@ entire voice loop drive it with no changes.
 
 ## Tests
 
-157 unit tests (state machine, mood parse/blend/controller, FFT bands, mic, MediaTts, the
-telemetry formatters and panels, the Thinking watchdog, palette sync, the demo renderers
-and GLTF pipeline) plus 16 Playwright e2e specs that boot the app and the demo with a mocked
-Tauri IPC layer, assert a live WebGL canvas, verify settings/theme switching, terminal panel
-lifecycle, Claude bridge connect and mood-stripped turn-end, and the session telemetry strip.
-Rust unit tests cover the stream-json parsing and the TTS/STT helpers. CI runs lint, typecheck,
-unit tests, Vite build, and e2e on every push. `npm audit` is clean.
+174 unit tests (state machine, mood parse/blend/controller, FFT bands, mic, MediaTts, the
+telemetry formatters and panels, the Thinking watchdog, palette sync, keyboard shortcuts,
+panel snap-to-edge, the demo renderers and GLTF pipeline) plus 16 Playwright e2e specs that
+boot the app and the demo with a mocked Tauri IPC layer, assert a live WebGL canvas, verify
+settings/theme switching, terminal panel lifecycle, Claude bridge connect and mood-stripped
+turn-end, and the session telemetry strip. Rust unit tests cover the stream-json parsing and
+the TTS/STT helpers. CI runs lint, typecheck, unit tests, Vite build, and e2e on every push.
+`npm audit` is clean.
 
 ## Tech stack
 
 TypeScript, Three.js, Vite, Vitest, and Playwright on the frontend; Tauri v2 with a Rust
-backend (`whisper-rs`, `webrtc-vad`, the `windows` crate for SAPI, `tokio` + `serde_json` for
-the Claude sidecar); and the `claude` CLI for the agent itself. Windows is the primary platform;
-the avatar and the voice seam are platform-independent.
+backend (`whisper-rs`, `webrtc-vad`, the `windows` crate for SAPI, `tauri-plugin-notification`
+for system toasts, `tokio` + `serde_json` for the Claude sidecar); and the `claude` CLI for
+the agent itself. Windows is the primary platform; the avatar and the voice seam are
+platform-independent.
 
 ## Acknowledgements
 
