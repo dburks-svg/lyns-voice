@@ -21,6 +21,8 @@ export interface AppSettings {
   vadMs: number;
   theme: string;
   panelLayouts?: PanelLayout[];
+  snapThreshold: number;
+  autoReconnect: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -30,6 +32,8 @@ const DEFAULTS: AppSettings = {
   micDeviceId: '',
   vadMs: 810,
   theme: 'cyan',
+  snapThreshold: 12,
+  autoReconnect: true,
 };
 
 export function loadSettings(): AppSettings {

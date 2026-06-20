@@ -6,6 +6,7 @@ import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
+import { attachShortcuts } from './shortcuts';
 
 /**
  * Q desktop app entry.
@@ -70,6 +71,16 @@ async function bootstrap(): Promise<void> {
       voice: settings.ttsVoice,
     }),
     micDeviceId: () => settings.micDeviceId,
+    autoReconnect: settings.autoReconnect,
+    onReconnectStatus: (status) => {
+      const cap = document.getElementById('caption');
+      if (!cap) return;
+      if (status.attempting) {
+        cap.textContent = `Reconnecting (${status.attempt}/${status.maxAttempts})...`;
+      } else if (status.attempt >= status.maxAttempts) {
+        cap.textContent = 'Auto-reconnect failed.';
+      }
+    },
   });
 
   // Settings drawer toggle
@@ -325,10 +336,77 @@ async function bootstrap(): Promise<void> {
           minWidth: 180,
           minHeight: 100,
           onEnd: savePanelLayouts,
+          snapThreshold: settings.snapThreshold,
+          snapTargets: () => {
+            const rects: DOMRect[] = [];
+            for (const p of document.querySelectorAll<HTMLElement>('.panel, .terminal-window, .diff-window')) {
+              if (p !== panel) rects.push(p.getBoundingClientRect());
+            }
+            return rects;
+          },
         });
       }
     }
   });
+
+  // Keyboard shortcuts: Alt+T/D/S toggle panels, Escape closes topmost, Space toggles mic.
+  attachShortcuts({
+    toggleTerminal: () => terminalBtn?.click(),
+    toggleDiffs: () => diffBtn?.click(),
+    toggleSettings: () => settingsBtn?.click(),
+    toggleMic,
+    closeFocused: () => {
+      if (settingsDrawer && !settingsDrawer.hidden) {
+        settingsBtn?.click();
+        return;
+      }
+      if (diffPanel) {
+        diffPanel.destroy();
+        diffPanel = null;
+        diffBtn?.classList.remove('active');
+        return;
+      }
+      const wins = [...document.querySelectorAll<HTMLElement>('.terminal-window')];
+      if (wins.length > 0) {
+        const top = wins.reduce((a, b) =>
+          (parseInt(b.style.zIndex || '0') > parseInt(a.style.zIndex || '0') ? b : a));
+        top.querySelector<HTMLElement>('.tab-close')?.click();
+      }
+    },
+  });
+
+  // Right-click copy menu for transcript and diff panels.
+  const transcriptEl = document.getElementById('hud-transcript');
+  if (transcriptEl) {
+    let copyMenu: HTMLElement | null = null;
+    const dismissCopyMenu = (): void => {
+      copyMenu?.remove();
+      copyMenu = null;
+    };
+    transcriptEl.addEventListener('contextmenu', (e) => {
+      const sel = window.getSelection()?.toString();
+      if (!sel) return;
+      e.preventDefault();
+      dismissCopyMenu();
+      const menu = document.createElement('div');
+      menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:999;
+        background:rgba(20,30,40,0.95);border:1px solid var(--accent-faint,#3af);
+        padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;color:#cfe9f5;`;
+      menu.textContent = 'Copy';
+      menu.addEventListener('click', () => {
+        void navigator.clipboard.writeText(sel);
+        dismissCopyMenu();
+      });
+      document.body.appendChild(menu);
+      copyMenu = menu;
+      document.addEventListener('pointerdown', (ev) => {
+        if (ev.target !== menu) dismissCopyMenu();
+      }, { once: true });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') dismissCopyMenu();
+      }, { once: true });
+    });
+  }
 
   if (label) {
     label.textContent = `Q v${VERSION}`;

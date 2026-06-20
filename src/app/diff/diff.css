@@ -135,6 +135,7 @@
   font-size: 11px;
   line-height: 1.45;
   overflow-x: auto;
+  user-select: text;
 }
 
 .diff-line {

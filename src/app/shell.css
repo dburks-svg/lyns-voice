@@ -510,6 +510,7 @@ body[data-state="speaking"] {
   gap: 5px;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-soft) transparent;
+  user-select: text;
 }
 .transcript::-webkit-scrollbar {
   width: 5px;
@@ -546,6 +547,7 @@ body[data-state="speaking"] {
 .t-text {
   color: #cfe9f5;
   word-break: break-word;
+  user-select: text;
 }
 .t-q .t-text {
   color: #eafaff;

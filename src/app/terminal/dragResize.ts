@@ -10,10 +10,48 @@ export interface DragResizeOptions {
   minHeight?: number;
   onMoveStart?: () => void;
   onEnd?: () => void;
+  snapThreshold?: number;
+  snapTargets?: () => DOMRect[];
+}
+
+export interface SnapRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function computeSnap(
+  rect: SnapRect,
+  vpW: number,
+  vpH: number,
+  targets: SnapRect[],
+  threshold: number,
+): { x: number; y: number } {
+  let { x, y } = rect;
+  const right = x + rect.width;
+  const bottom = y + rect.height;
+
+  if (x <= threshold) x = 0;
+  else if (vpW - right <= threshold) x = vpW - rect.width;
+
+  if (y <= threshold) y = 0;
+  else if (vpH - bottom <= threshold) y = vpH - rect.height;
+
+  for (const t of targets) {
+    const tRight = t.x + t.width;
+    const tBottom = t.y + t.height;
+    if (Math.abs(x - tRight) <= threshold) x = tRight;
+    else if (Math.abs(right - t.x) <= threshold) x = t.x - rect.width;
+    if (Math.abs(y - tBottom) <= threshold) y = tBottom;
+    else if (Math.abs(bottom - t.y) <= threshold) y = t.y - rect.height;
+  }
+
+  return { x, y };
 }
 
 export function attachDragResize(opts: DragResizeOptions): () => void {
-  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart, onEnd } = opts;
+  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart, onEnd, snapThreshold = 0, snapTargets } = opts;
   const ac = new AbortController();
   const sig = ac.signal;
 
@@ -47,6 +85,13 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
   function onDragUp(): void {
     dragHandle.removeEventListener('pointermove', onDragMove);
+    if (snapThreshold > 0) {
+      const rect: SnapRect = { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+      const targets = snapTargets ? snapTargets() : [];
+      const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, snapThreshold);
+      el.style.left = `${snapped.x}px`;
+      el.style.top = `${snapped.y}px`;
+    }
     onEnd?.();
   }
 
@@ -97,6 +142,13 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
       function onResizeUp(): void {
         h.removeEventListener('pointermove', onResizeMove);
+        if (snapThreshold > 0) {
+          const rect: SnapRect = { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+          const targets = snapTargets ? snapTargets() : [];
+          const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, snapThreshold);
+          el.style.left = `${snapped.x}px`;
+          el.style.top = `${snapped.y}px`;
+        }
         onEnd?.();
       }
 

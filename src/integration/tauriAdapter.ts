@@ -219,6 +219,10 @@ export interface TauriAdapterOptions {
   micDeviceId?: () => string;
   /** Initial theme applied on mount to avoid a 1-frame cyan flash. */
   initialTheme?: ThemeName;
+  /** Auto-reconnect status updates (attempt count, success/failure). */
+  onReconnectStatus?: (status: { attempting: boolean; attempt: number; maxAttempts: number }) => void;
+  /** Whether auto-reconnect is enabled (default true). */
+  autoReconnect?: boolean;
 }
 
 export interface TauriHandle {
@@ -242,6 +246,8 @@ export interface TauriHandle {
   setState(state: AvatarState): void;
   /** Switch the orb's color theme at runtime. */
   setTheme(theme: ThemeName): void;
+  /** Cancel any pending auto-reconnect (e.g., user clicked disconnect during retry). */
+  cancelReconnect(): void;
   dispose(): void;
 }
 
@@ -493,6 +499,12 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // --- Claude bridge (Phase 3): the full voice loop -------------------------
   // onUtterance -> claude_submit -> Thinking -> spoken reply (with mood) -> idle.
   let claudeConnected = false;
+  let userDisconnected = false;
+  let lastDir = '';
+  let reconnectAttempts = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const MAX_RECONNECT = 5;
+  const autoReconnect = options.autoReconnect !== false;
 
   addListener<{ active: boolean }>('claude://thinking', (p) => {
     signals.pendingResponse = p.active;
@@ -522,16 +534,50 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       if (p.cwd) {
         safeSetText(options.caption ?? null, `Claude connected: ${p.cwd}`);
       }
+      reconnectAttempts = 0;
+      options.onReconnectStatus?.({ attempting: false, attempt: 0, maxAttempts: MAX_RECONNECT });
     } else {
-      // The child exited on its own: stop routing utterances to a dead session and
-      // recover the UI (otherwise the next utterance would wedge it in Thinking).
       claudeConnected = false;
       signals.pendingResponse = false;
       sync();
+      if (!userDisconnected && autoReconnect && lastDir && reconnectAttempts < MAX_RECONNECT) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+        reconnectAttempts++;
+        options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          void startClaude(lastDir).then((ok) => {
+            if (!ok && reconnectAttempts < MAX_RECONNECT) {
+              // startClaude failed without a ready event; trigger next attempt
+              const nextDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+              reconnectAttempts++;
+              options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+              reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                void startClaude(lastDir);
+              }, nextDelay);
+            } else if (!ok) {
+              options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+            }
+          });
+        }, delay);
+      } else if (!userDisconnected && autoReconnect && reconnectAttempts >= MAX_RECONNECT) {
+        options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+      }
     }
   });
 
+  const cancelReconnect = (): void => {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnectAttempts = 0;
+  };
+
   const startClaude = async (dir?: string): Promise<boolean> => {
+    userDisconnected = false;
+    if (dir) lastDir = dir;
     try {
       await invoke('claude_start', dir ? { dir } : {});
       claudeConnected = true;
@@ -543,6 +589,8 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     }
   };
   const stopClaude = (): void => {
+    userDisconnected = true;
+    cancelReconnect();
     claudeConnected = false;
     void invoke('claude_stop').catch(() => undefined);
     speechQueue.length = 0; // drop any queued reply chunks
@@ -562,12 +610,14 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     startClaude,
     stopClaude,
     isClaudeConnected: () => claudeConnected,
+    cancelReconnect,
     setState: (state) => controller.setState(state),
     setTheme: (theme: ThemeName) => {
       const palette = THEME_PALETTES[theme];
       if (palette) controller.setPalette(palette);
     },
     dispose: () => {
+      cancelReconnect();
       watchdog.clear();
       capture.stop();
       void invoke('stt_stop').catch(() => undefined);
