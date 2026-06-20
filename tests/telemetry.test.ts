@@ -94,13 +94,13 @@ describe('TelemetryPanels', () => {
     expect(lines?.[0].querySelector('.t-text')?.textContent).toBe('line 3');
   });
 
-  it('appends activity lines with name + target', () => {
+  it('updates activity indicator with latest tool call', () => {
     const { refs } = makeRefs();
     const panels = new TelemetryPanels(refs);
     panels.addActivity('Read', 'src/foo.ts');
-    const line = refs.activity?.querySelector('.a-line');
-    expect(line?.querySelector('.a-name')?.textContent).toBe('Read');
-    expect(line?.querySelector('.a-target')?.textContent).toBe('src/foo.ts');
+    expect(refs.activity?.textContent).toBe('Read src/foo.ts');
+    panels.addActivity('Bash', 'npm test');
+    expect(refs.activity?.textContent).toBe('Bash npm test');
   });
 
   it('accumulates usage across turns', () => {

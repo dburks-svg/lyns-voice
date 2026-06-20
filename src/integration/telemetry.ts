@@ -80,8 +80,6 @@ export interface TelemetryOptions {
   now?: () => number;
   /** Max transcript lines retained. */
   maxTranscript?: number;
-  /** Max activity lines retained. */
-  maxActivity?: number;
   /** Waveform sample count (x-resolution). */
   waveSamples?: number;
 }
@@ -93,7 +91,6 @@ export class TelemetryPanels {
   private readonly refs: TelemetryRefs;
   private readonly now: () => number;
   private readonly maxTranscript: number;
-  private readonly maxActivity: number;
 
   private totalIn = 0;
   private totalOut = 0;
@@ -112,7 +109,6 @@ export class TelemetryPanels {
     this.refs = refs;
     this.now = opts.now ?? (() => performance.now());
     this.maxTranscript = opts.maxTranscript ?? 40;
-    this.maxActivity = opts.maxActivity ?? 30;
     this.history = new Array<number>(opts.waveSamples ?? 80).fill(0);
 
     // Build the oscilloscope polyline inside the provided <svg> wave ref.
@@ -152,26 +148,11 @@ export class TelemetryPanels {
     host.scrollTop = host.scrollHeight;
   }
 
-  /** Append a tool-activity line ("Read foo.ts"). */
+  /** Update the activity indicator with the latest tool call. */
   addActivity(name: string, target: string): void {
-    const host = this.refs.activity;
-    if (!host) return;
-    host.querySelector('.a-empty')?.remove(); // drop the "idle" placeholder
-    const line = document.createElement('div');
-    line.className = 'a-line';
-    const n = document.createElement('span');
-    n.className = 'a-name';
-    n.textContent = name;
-    line.appendChild(n);
-    if (target) {
-      const t = document.createElement('span');
-      t.className = 'a-target';
-      t.textContent = target;
-      line.appendChild(t);
-    }
-    host.appendChild(line);
-    this.cap(host, this.maxActivity);
-    host.scrollTop = host.scrollHeight;
+    const el = this.refs.activity;
+    if (!el) return;
+    el.textContent = target ? `${name} ${target}` : name;
   }
 
   /** Fold one turn's usage into the running session totals and re-render. */

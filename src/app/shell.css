@@ -92,6 +92,18 @@ body[data-state="speaking"] {
   color: #eafbff;
   text-shadow: 0 0 6px var(--accent-soft);
 }
+.ss-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--accent-faint);
+  flex-shrink: 0;
+}
+.ss-activity > span:last-child {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------------
    Top HUD: the (still fully functional) control cluster, restyled as a
@@ -394,8 +406,7 @@ body[data-state="speaking"] {
 }
 
 /* Transcript panel: a scrolling conversation log (you <-> Q). */
-.transcript,
-.activity {
+.transcript {
   font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.5;
@@ -407,17 +418,14 @@ body[data-state="speaking"] {
   scrollbar-width: thin;
   scrollbar-color: var(--accent-soft) transparent;
 }
-.transcript::-webkit-scrollbar,
-.activity::-webkit-scrollbar {
+.transcript::-webkit-scrollbar {
   width: 5px;
 }
-.transcript::-webkit-scrollbar-thumb,
-.activity::-webkit-scrollbar-thumb {
+.transcript::-webkit-scrollbar-thumb {
   background: var(--accent-faint);
   border-radius: 3px;
 }
-.t-empty,
-.a-empty {
+.t-empty {
   color: var(--ink-dim);
   font-style: italic;
   opacity: 0.6;
@@ -450,24 +458,6 @@ body[data-state="speaking"] {
   color: #eafaff;
 }
 
-/* Activity feed: each tool Claude runs this turn. */
-.a-line {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.a-name {
-  color: var(--accent);
-  text-shadow: 0 0 6px var(--accent-soft);
-  flex: 0 0 auto;
-}
-.a-target {
-  color: var(--ink-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* Audio oscilloscope. */
 .wave {
