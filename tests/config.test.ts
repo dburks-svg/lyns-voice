@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CONFIG, cloneConfig } from '../src/config/config';
+import { DEFAULT_CONFIG, cloneConfig, THEME_PALETTES } from '../src/config/config';
 import {
   loadConfig,
   saveConfig,
@@ -7,6 +7,7 @@ import {
   STORAGE_KEY,
   type StorageLike,
 } from '../src/config/store';
+import { themeToPalette } from '../src/avatar/QOrbAvatar';
 
 /** In-memory storage so persistence tests are deterministic. */
 function fakeStorage(seed?: Record<string, string>): StorageLike & { data: Map<string, string> } {
@@ -105,5 +106,36 @@ describe('saveConfig', () => {
     const merged = sanitizeConfig({ apiKey: 'leak', skin: 'wormhole' });
     expect(merged.skin).toBe('reactor'); // invalid enum -> default
     expect(JSON.stringify(merged)).not.toContain('leak');
+  });
+});
+
+describe('THEME_PALETTES', () => {
+  it('defines distinct hues for cyan, aurora, and ember', () => {
+    const hue = (hex: number): number => {
+      const r = (hex >> 16) & 0xff;
+      const g = (hex >> 8) & 0xff;
+      const b = hex & 0xff;
+      return Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b);
+    };
+    const cyanH = hue(THEME_PALETTES.cyan.neonRim);
+    const auroraH = hue(THEME_PALETTES.aurora.neonRim);
+    const emberH = hue(THEME_PALETTES.ember.neonRim);
+    expect(Math.abs(cyanH - auroraH)).toBeGreaterThan(0.3);
+    expect(Math.abs(cyanH - emberH)).toBeGreaterThan(0.3);
+    expect(Math.abs(auroraH - emberH)).toBeGreaterThan(0.3);
+  });
+});
+
+describe('themeToPalette', () => {
+  it('derives orb-compatible QPaletteValues from each theme', () => {
+    for (const name of ['cyan', 'aurora', 'ember'] as const) {
+      const p = themeToPalette(THEME_PALETTES[name]);
+      expect(p.primary).toBe(THEME_PALETTES[name].idleRim);
+      expect(p.secondary).toBe(THEME_PALETTES[name].idleCore);
+      expect(p.fallback).toContain('radial-gradient');
+      expect(typeof p.core).toBe('number');
+      expect(typeof p.tertiary).toBe('number');
+      expect(typeof p.deep).toBe('number');
+    }
   });
 });

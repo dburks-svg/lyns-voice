@@ -50,6 +50,7 @@ async function bootstrap(): Promise<void> {
 
   const handle = attachTauri({
     root,
+    initialTheme: (settings.theme as ThemeName) || undefined,
     caption: document.getElementById('caption'),
     onTranscript: (role, text) => panels.addTranscript(role, text),
     onActivity: (a) => panels.addActivity(a.name, a.target),
@@ -151,6 +152,8 @@ async function bootstrap(): Promise<void> {
       handle.setTheme(theme);
       settings.theme = theme;
       saveSettings(settings);
+      for (const b of document.querySelectorAll('.theme-btn')) b.classList.remove('active');
+      btn.classList.add('active');
     });
   }
 

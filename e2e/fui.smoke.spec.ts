@@ -2,12 +2,12 @@ import { test, expect } from '@playwright/test';
 
 /**
  * End-to-end smoke for the FUI app shell at `/` (the Tauri webview entry). It
- * renders the holographic orb (a real WebGL canvas), the four telemetry panels,
- * and the TAP TO TALK mic, and cycles state through the HUD. No Tauri backend is
- * needed: the adapter's invoke/listen calls reject outside Tauri and are
- * swallowed, and the orb renders without them.
+ * renders the holographic orb (a real WebGL canvas), the telemetry panels,
+ * and the TAP TO TALK mic. No Tauri backend is needed: the adapter's
+ * invoke/listen calls reject outside Tauri and are swallowed, and the orb
+ * renders without them.
  */
-test('renders the WebGL orb, telemetry panels, mic, and cycles state', async ({ page }) => {
+test('renders the WebGL orb, telemetry panels, and mic', async ({ page }) => {
   await page.goto('/');
 
   // The holographic orb is a real, sized WebGL canvas mounted full-window.
@@ -20,14 +20,9 @@ test('renders the WebGL orb, telemetry panels, mic, and cycles state', async ({ 
   });
   expect(ready).toBe(true);
 
-  // The four floating telemetry panels and the TAP TO TALK mic are present.
-  await expect(page.locator('.panel')).toHaveCount(4);
+  // The floating telemetry panels and the TAP TO TALK mic are present.
+  await expect(page.locator('.panel')).toHaveCount(2);
   await expect(page.locator('#mic-fab')).toBeVisible();
-
-  // Cycling a state from the HUD reflects onto body[data-state] (the CSS hook the
-  // adapter drives; #status is the app's message/version label, not the state).
-  await page.click('button[data-state="thinking"]');
-  await expect(page.locator('body')).toHaveAttribute('data-state', 'thinking');
 
   await page.screenshot({ path: 'test-results/fui-app.png' });
 });

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DEFAULT_CONFIG, type Skin } from '../config/config';
 import { displacement, type DeformationParams } from './deformation';
 import { loadHeadGeometry, type GLTFLoaderFactory } from './gltf';
+import type { QPaletteValues } from './jarvisOrb/states';
 import { buildReactor, type ReactorHandle } from './reactor';
 import {
   AVATAR_FRAGMENT_SHADER,
@@ -37,6 +38,8 @@ export interface AvatarOptions {
   gltfLoaderFactory?: GLTFLoaderFactory;
   /** Scales deformation magnitude; head meshes use < 1 so they pulse, not melt. */
   amplitudeScale?: number;
+  /** Initial orb palette values for the Q orb renderer (ignored by other skins). */
+  initialPalette?: QPaletteValues;
 }
 
 /** Baseline idle breathing: gentle, slow, living-but-calm. Sourced from config. */

@@ -15,7 +15,7 @@
  */
 
 import type { AvatarOptions } from '../avatar/Avatar';
-import { QOrbAvatar } from '../avatar/QOrbAvatar';
+import { QOrbAvatar, themeToPalette } from '../avatar/QOrbAvatar';
 import {
   AvatarController,
   type AvatarState,
@@ -206,6 +206,8 @@ export interface TauriAdapterOptions {
   ttsSettings?: TtsSettingsGetter;
   /** Provides the preferred mic device ID for STT capture. */
   micDeviceId?: () => string;
+  /** Initial theme applied on mount to avoid a 1-frame cyan flash. */
+  initialTheme?: ThemeName;
 }
 
 export interface TauriHandle {
@@ -241,7 +243,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const view = options.view ?? window;
   const invoke = options.invoke ?? defaultInvoke;
 
-  const avatar = (options.avatarFactory ?? defaultAvatarFactory)(options.avatarOptions);
+  const initialTheme = options.initialTheme;
+  const initialPaletteConfig = initialTheme ? THEME_PALETTES[initialTheme] : undefined;
+  const avatarOpts = initialPaletteConfig
+    ? { ...options.avatarOptions, initialPalette: themeToPalette(initialPaletteConfig) }
+    : options.avatarOptions;
+
+  const avatar = (options.avatarFactory ?? defaultAvatarFactory)(avatarOpts);
   avatar.reducedMotion = prefersReducedMotion(view);
   avatar.mount(options.root);
 
@@ -265,6 +273,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     },
     moodProvider: mood,
   });
+  if (initialPaletteConfig) controller.setPalette(initialPaletteConfig);
   avatar.beforeRender = (time) => controller.tick(time);
   avatar.start();
 

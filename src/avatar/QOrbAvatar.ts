@@ -24,6 +24,7 @@ import {
   type QPaletteValues,
 } from './jarvisOrb/states';
 import type { AvatarOptions } from './Avatar';
+import type { PaletteConfig } from '../config/config';
 import type { DeformationParams } from './deformation';
 
 type Activity = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -123,6 +124,15 @@ function rgbaString(hex: number, alpha: number): string {
 }
 
 /**
+ * Bridge a PaletteConfig (app-level theme) to a QPaletteValues (orb-internal)
+ * using the idle-state colors. Used for the initial mount palette so the orb
+ * starts in the correct theme without waiting for the first controller tick.
+ */
+export function themeToPalette(palette: PaletteConfig): QPaletteValues {
+  return paletteFromColors(palette.idleRim, palette.idleCore);
+}
+
+/**
  * Build a Q orb palette from the controller's rim/core hex (which already
  * encode the per-state color and any mood tint). `rim` is the dominant neon
  * (primary), `core` the deeper tone (secondary); the hot center burns toward
@@ -176,12 +186,14 @@ export class QOrbAvatar {
   private lastRim = -1;
   private lastCore = -1;
   private pendingPalette: QPaletteValues | null = null;
+  private readonly initialPaletteValues: QPaletteValues | undefined;
 
-  constructor(_options: AvatarOptions = {}) {
+  constructor(options: AvatarOptions = {}) {
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
     this.canvas.style.height = '100%';
     this.canvas.style.display = 'block';
+    this.initialPaletteValues = options.initialPalette;
   }
 
   // --- ControllableAvatar -------------------------------------------------
@@ -222,7 +234,7 @@ export class QOrbAvatar {
       preset: IMMERSIVE_PRESET,
       dpr,
       initialState: ORB_STATES.idle,
-      initialPalette: 'cyan',
+      initialPalette: this.initialPaletteValues ?? 'cyan',
     });
     this.activity = 'idle';
   }

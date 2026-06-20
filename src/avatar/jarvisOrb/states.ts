@@ -116,9 +116,6 @@ export const SIZE_PRESETS: Record<QSize, QSizePreset> = {
   },
 };
 
-const cyanFallback =
-  "radial-gradient(circle at 50% 50%, rgba(238,255,255,0.96) 0%, rgba(71,245,255,0.82) 16%, rgba(20,184,255,0.48) 42%, rgba(6,92,148,0.22) 70%, rgba(0,0,0,0) 82%)";
-
 export const PALETTES: Record<QPaletteName, QPaletteValues> = {
   cyan: {
     core: 0xeaffff,
@@ -126,23 +123,26 @@ export const PALETTES: Record<QPaletteName, QPaletteValues> = {
     secondary: 0x19a8ff,
     tertiary: 0x7fffee,
     deep: 0x063952,
-    fallback: cyanFallback,
+    fallback:
+      "radial-gradient(circle at 50% 50%, rgba(238,255,255,0.96) 0%, rgba(56,244,255,0.82) 16%, rgba(25,168,255,0.48) 42%, rgba(6,57,82,0.22) 70%, rgba(0,0,0,0) 82%)",
   },
   aurora: {
-    core: 0xf2ffff,
-    primary: 0x58f7ff,
-    secondary: 0x2cc7ff,
-    tertiary: 0x9afff4,
-    deep: 0x073a66,
-    fallback: cyanFallback,
+    core: 0xeeffee,
+    primary: 0x38ff94,
+    secondary: 0x19cc77,
+    tertiary: 0x7fffaa,
+    deep: 0x063920,
+    fallback:
+      "radial-gradient(circle at 50% 50%, rgba(238,255,238,0.96) 0%, rgba(56,255,148,0.82) 16%, rgba(25,204,119,0.48) 42%, rgba(6,57,32,0.22) 70%, rgba(0,0,0,0) 82%)",
   },
   ember: {
-    core: 0xffffff,
-    primary: 0x4df6ff,
-    secondary: 0x0ea5e9,
-    tertiary: 0x99fff0,
-    deep: 0x052f4a,
-    fallback: cyanFallback,
+    core: 0xffffea,
+    primary: 0xff9438,
+    secondary: 0xffa819,
+    tertiary: 0xffcc7f,
+    deep: 0x523906,
+    fallback:
+      "radial-gradient(circle at 50% 50%, rgba(255,255,234,0.96) 0%, rgba(255,148,56,0.82) 16%, rgba(255,168,25,0.48) 42%, rgba(82,57,6,0.22) 70%, rgba(0,0,0,0) 82%)",
   },
 };
 
