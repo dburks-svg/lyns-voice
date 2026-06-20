@@ -12,6 +12,15 @@
          glows over the solid background; the FUI panels float on top of it. -->
     <div id="avatar-root"></div>
 
+    <!-- Session stats: compact top-left readout -->
+    <div class="session-strip">
+      <span class="ss-item"><span class="ss-label">IN</span> <span id="hud-tokens-in">0</span></span>
+      <span class="ss-item"><span class="ss-label">OUT</span> <span id="hud-tokens-out">0</span></span>
+      <span class="ss-item"><span class="ss-label">COST</span> <span id="hud-cost">$0.00</span></span>
+      <span class="ss-item"><span class="ss-label">TURNS</span> <span id="hud-turns">0</span></span>
+      <span class="ss-item"><span class="ss-label">UP</span> <span id="hud-uptime">0:00</span></span>
+    </div>
+
     <!-- Top HUD bar: minimal controls, always visible. -->
     <div class="hud-bar">
       <button id="settings-btn" class="hud-gear" type="button" aria-label="Settings">
@@ -118,19 +127,6 @@
           </div>
         </section>
 
-        <!-- Bottom-right: session telemetry (tokens / cost / turns / uptime) -->
-        <section class="panel panel-session">
-          <header class="panel-head">
-            <span class="panel-title">Session</span>
-          </header>
-          <dl class="stats">
-            <div class="stat"><dt>TOKENS IN</dt><dd id="hud-tokens-in" class="val">0</dd></div>
-            <div class="stat"><dt>TOKENS OUT</dt><dd id="hud-tokens-out" class="val">0</dd></div>
-            <div class="stat"><dt>COST</dt><dd id="hud-cost" class="val">$0.00</dd></div>
-            <div class="stat"><dt>TURNS</dt><dd id="hud-turns" class="val">0</dd></div>
-            <div class="stat"><dt>UPTIME</dt><dd id="hud-uptime" class="val">0:00</dd></div>
-          </dl>
-        </section>
       </aside>
 
       <!-- Footer: circular TAP TO TALK mic. Proxies the same listening logic as

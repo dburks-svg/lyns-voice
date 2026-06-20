@@ -51,6 +51,49 @@ body[data-state="speaking"] {
 }
 
 /* ---------------------------------------------------------------------
+   Session stats strip: compact top-left readout, always visible.
+   --------------------------------------------------------------------- */
+.session-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 16px;
+  background: linear-gradient(180deg, rgba(5, 18, 30, 0.92), rgba(5, 12, 20, 0.4));
+  border-bottom-right-radius: 8px;
+  border-bottom: 1px solid var(--accent-faint);
+  border-right: 1px solid var(--accent-faint);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+  user-select: none;
+}
+.session-strip:hover {
+  opacity: 1;
+}
+.ss-item {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.ss-label {
+  color: var(--ink-dim);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.ss-item > span:last-child {
+  color: #eafbff;
+  text-shadow: 0 0 6px var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------------
    Top HUD: the (still fully functional) control cluster, restyled as a
    thin neon bar so it blends with the FUI instead of clashing.
    --------------------------------------------------------------------- */
@@ -443,32 +486,6 @@ body[data-state="speaking"] {
   stroke-width: 1;
 }
 
-/* Session telemetry: tokens / cost / turns / uptime. */
-.stats {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-}
-.stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-}
-.stat dt {
-  color: var(--ink-dim);
-  letter-spacing: 0.08em;
-  font-size: 10px;
-}
-.stat dd {
-  margin: 0;
-  color: #eafbff;
-  text-shadow: 0 0 6px var(--accent-soft);
-  font-variant-numeric: tabular-nums;
-}
 
 /* ---------------------------------------------------------------------
    Footer: the circular TAP TO TALK mic. A new control that drives the same
