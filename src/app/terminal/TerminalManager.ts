@@ -1,7 +1,7 @@
 /**
- * Manages the collection of floating terminal windows. Owns the terminal-layer
- * DOM element, handles spawn/close/z-index ordering, and positions new windows
- * away from the orb center.
+ * Manages floating terminal windows with tabbed sessions. Each panel can hold
+ * multiple terminal tabs. The "+" button on a panel spawns a new tab in the
+ * same window; the HUD "+ terminal" button creates a new window.
  */
 import { TerminalPanel } from './TerminalPanel';
 import { TerminalInstance } from './TerminalInstance';
@@ -11,45 +11,63 @@ interface TauriApi {
   listen: (event: string, handler: (e: { payload: unknown }) => void) => Promise<() => void>;
 }
 
-interface TerminalEntry {
+interface PanelEntry {
   panel: TerminalPanel;
-  instance: TerminalInstance;
+  instances: Map<string, TerminalInstance>;
 }
 
+let nextPanelId = 1;
+
 export class TerminalManager {
-  private terminals = new Map<string, TerminalEntry>();
+  private panels = new Map<string, PanelEntry>();
+  private termToPanel = new Map<string, string>();
   private layer: HTMLElement;
   private topZ = 10;
   private cascadeIndex = 0;
+  private defaultCwd: (() => string | undefined) | undefined;
 
   constructor(
     layerEl: HTMLElement,
     private tauri: TauriApi,
+    cwdFn?: () => string | undefined,
   ) {
     this.layer = layerEl;
+    this.defaultCwd = cwdFn;
   }
 
-  async spawn(cwd?: string): Promise<string | null> {
+  async spawn(cwd?: string, panelId?: string): Promise<string | null> {
     try {
       const id = (await this.tauri.invoke('terminal_spawn', { cwd })) as string;
-      const pos = this.nextPosition();
 
-      const panel = new TerminalPanel({
-        id,
-        title: cwd ? shortenPath(cwd) : 'terminal',
-        x: pos.x,
-        y: pos.y,
-        onClose: (tid) => this.close(tid),
-        onFocus: (tid) => this.bringToFront(tid),
-      });
+      let entry = panelId ? this.panels.get(panelId) : undefined;
+      if (!entry) {
+        const pid = `panel-${nextPanelId++}`;
+        const pos = this.nextPosition();
+        const panel = new TerminalPanel({
+          panelId: pid,
+          x: pos.x,
+          y: pos.y,
+          onCloseTab: (termId) => this.closeTab(termId),
+          onAddTab: (p) => {
+            const dir = this.defaultCwd?.();
+            void this.spawn(dir, p);
+          },
+          onFocus: (p) => this.bringToFront(p),
+        });
+        entry = { panel, instances: new Map() };
+        this.panels.set(pid, entry);
+        this.layer.appendChild(panel.el);
+        panelId = pid;
+      }
 
-      this.layer.appendChild(panel.el);
+      const title = cwd ? shortenPath(cwd) : 'shell';
+      const bodyEl = entry.panel.addTab(id, title);
+      const instance = new TerminalInstance(id, bodyEl, this.tauri, cwd);
+      entry.instances.set(id, instance);
+      this.termToPanel.set(id, panelId!);
 
-      const instance = new TerminalInstance(id, panel.getBody(), this.tauri, cwd);
-      this.terminals.set(id, { panel, instance });
-      this.bringToFront(id);
+      this.bringToFront(panelId!);
       instance.focus();
-
       return id;
     } catch (e) {
       console.error('terminal spawn failed:', e);
@@ -57,31 +75,46 @@ export class TerminalManager {
     }
   }
 
-  close(id: string): void {
-    const entry = this.terminals.get(id);
+  closeTab(termId: string): void {
+    const panelId = this.termToPanel.get(termId);
+    if (!panelId) return;
+    const entry = this.panels.get(panelId);
     if (!entry) return;
-    entry.instance.destroy();
-    entry.panel.destroy();
-    this.terminals.delete(id);
-    this.tauri.invoke('terminal_kill', { id }).catch(() => {});
-  }
 
-  closeAll(): void {
-    for (const id of [...this.terminals.keys()]) {
-      this.close(id);
+    const instance = entry.instances.get(termId);
+    if (instance) instance.destroy();
+    entry.instances.delete(termId);
+    this.termToPanel.delete(termId);
+    this.tauri.invoke('terminal_kill', { id: termId }).catch(() => {});
+
+    const hasMore = entry.panel.removeTab(termId);
+    if (!hasMore) {
+      entry.panel.destroy();
+      this.panels.delete(panelId);
     }
   }
 
-  bringToFront(id: string): void {
-    const entry = this.terminals.get(id);
+  closeAll(): void {
+    for (const [, entry] of this.panels) {
+      for (const [termId, instance] of entry.instances) {
+        instance.destroy();
+        this.tauri.invoke('terminal_kill', { id: termId }).catch(() => {});
+      }
+      entry.panel.destroy();
+    }
+    this.panels.clear();
+    this.termToPanel.clear();
+  }
+
+  bringToFront(panelId: string): void {
+    const entry = this.panels.get(panelId);
     if (!entry) return;
     this.topZ += 1;
     entry.panel.el.style.zIndex = `${this.topZ}`;
-    entry.instance.focus();
-  }
-
-  get count(): number {
-    return this.terminals.size;
+    const activeId = entry.panel.getActiveTabId();
+    if (activeId) {
+      entry.instances.get(activeId)?.focus();
+    }
   }
 
   private nextPosition(): { x: number; y: number } {
@@ -90,8 +123,6 @@ export class TerminalManager {
     const margin = 60;
     const cascade = 30;
 
-    // Avoid the center 40% (the orb zone). Place in top-left quadrant,
-    // cascading each new window.
     const baseX = margin + (this.cascadeIndex * cascade) % (vw * 0.25);
     const baseY = margin + 40 + (this.cascadeIndex * cascade) % (vh * 0.25);
     this.cascadeIndex++;

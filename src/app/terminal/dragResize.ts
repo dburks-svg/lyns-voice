@@ -25,7 +25,7 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
   function onDragDown(e: PointerEvent): void {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest('.terminal-close')) return;
+    if (target.closest('.terminal-close, .tab-close, .tab-add, .tab')) return;
     e.preventDefault();
     onMoveStart?.();
     dragHandle.setPointerCapture(e.pointerId);

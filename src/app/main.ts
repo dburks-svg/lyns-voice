@@ -165,16 +165,21 @@ async function bootstrap(): Promise<void> {
       invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     };
     const { listen } = await import('@tauri-apps/api/event');
-    const termMgr = new TerminalManager(terminalLayer, {
-      invoke: tauri.invoke.bind(tauri),
-      listen: listen as (
-        event: string,
-        handler: (e: { payload: unknown }) => void,
-      ) => Promise<() => void>,
-    });
+    const getCwd = (): string | undefined =>
+      (document.getElementById('claude-dir') as HTMLInputElement | null)?.value.trim() || undefined;
+    const termMgr = new TerminalManager(
+      terminalLayer,
+      {
+        invoke: tauri.invoke.bind(tauri),
+        listen: listen as (
+          event: string,
+          handler: (e: { payload: unknown }) => void,
+        ) => Promise<() => void>,
+      },
+      getCwd,
+    );
     terminalBtn?.addEventListener('click', () => {
-      const cwd = (document.getElementById('claude-dir') as HTMLInputElement | null)?.value.trim();
-      void termMgr.spawn(cwd || undefined);
+      void termMgr.spawn(getCwd());
     });
   }
 
