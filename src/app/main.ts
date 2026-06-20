@@ -1,6 +1,7 @@
 import { VERSION, type AvatarState } from '../index';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
+import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
 
 /**
@@ -167,6 +168,35 @@ async function bootstrap(): Promise<void> {
       void termMgr.spawn(cwd || undefined);
     });
   }
+
+  // Make the four telemetry panels draggable and resizable. Wait one frame
+  // so the grid layout has rendered, then snapshot each panel's position and
+  // switch it to fixed positioning with drag/resize handles.
+  requestAnimationFrame(() => {
+    const DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
+    for (const panel of document.querySelectorAll<HTMLElement>('.panel')) {
+      const rect = panel.getBoundingClientRect();
+      panel.style.position = 'fixed';
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.width = `${rect.width}px`;
+      panel.style.height = `${rect.height}px`;
+      panel.style.zIndex = '2';
+
+      for (const d of DIRS) {
+        const h = document.createElement('div');
+        h.className = `resize-handle rh-${d}`;
+        h.dataset.dir = d;
+        panel.appendChild(h);
+      }
+
+      const head = panel.querySelector<HTMLElement>('.panel-head');
+      if (head) {
+        head.style.cursor = 'grab';
+        attachDragResize({ el: panel, dragHandle: head, minWidth: 180, minHeight: 100 });
+      }
+    }
+  });
 
   if (label) {
     label.textContent = `Q v${VERSION}`;
