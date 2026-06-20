@@ -4,7 +4,7 @@ import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
-import { loadSettings, saveSettings, type AppSettings } from './settings';
+import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 
 /**
  * Q desktop app entry.
@@ -184,18 +184,50 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // Make the four telemetry panels draggable and resizable. Wait one frame
-  // so the grid layout has rendered, then snapshot each panel's position and
-  // switch it to fixed positioning with drag/resize handles.
+  // Make telemetry panels draggable and resizable. Restore saved positions
+  // from localStorage if available; otherwise snapshot from the grid layout.
   requestAnimationFrame(() => {
     const DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
+    const saved = settings.panelLayouts;
+    const savedMap = new Map<string, PanelLayout>();
+    if (saved) {
+      for (const l of saved) savedMap.set(l.id, l);
+    }
+
+    function savePanelLayouts(): void {
+      const layouts: PanelLayout[] = [];
+      for (const p of document.querySelectorAll<HTMLElement>('.panel')) {
+        const id = panelId(p);
+        if (!id) continue;
+        layouts.push({
+          id,
+          x: p.offsetLeft,
+          y: p.offsetTop,
+          width: p.offsetWidth,
+          height: p.offsetHeight,
+        });
+      }
+      settings.panelLayouts = layouts;
+      saveSettings(settings);
+    }
+
     for (const panel of document.querySelectorAll<HTMLElement>('.panel')) {
-      const rect = panel.getBoundingClientRect();
+      const id = panelId(panel);
+      const restored = id ? savedMap.get(id) : undefined;
+
       panel.style.position = 'fixed';
-      panel.style.left = `${rect.left}px`;
-      panel.style.top = `${rect.top}px`;
-      panel.style.width = `${rect.width}px`;
-      panel.style.height = `${rect.height}px`;
+      if (restored) {
+        panel.style.left = `${restored.x}px`;
+        panel.style.top = `${restored.y}px`;
+        panel.style.width = `${restored.width}px`;
+        panel.style.height = `${restored.height}px`;
+      } else {
+        const rect = panel.getBoundingClientRect();
+        panel.style.left = `${rect.left}px`;
+        panel.style.top = `${rect.top}px`;
+        panel.style.width = `${rect.width}px`;
+        panel.style.height = `${rect.height}px`;
+      }
       panel.style.zIndex = '2';
 
       for (const d of DIRS) {
@@ -208,7 +240,13 @@ async function bootstrap(): Promise<void> {
       const head = panel.querySelector<HTMLElement>('.panel-head');
       if (head) {
         head.style.cursor = 'grab';
-        attachDragResize({ el: panel, dragHandle: head, minWidth: 180, minHeight: 100 });
+        attachDragResize({
+          el: panel,
+          dragHandle: head,
+          minWidth: 180,
+          minHeight: 100,
+          onEnd: savePanelLayouts,
+        });
       }
     }
   });
@@ -307,6 +345,13 @@ function wireSettings(settings: AppSettings): void {
     saveSettings(settings);
   });
 
+}
+
+function panelId(el: HTMLElement): string | undefined {
+  for (const cls of el.classList) {
+    if (cls.startsWith('panel-')) return cls;
+  }
+  return undefined;
 }
 
 bootstrap();

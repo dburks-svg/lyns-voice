@@ -9,10 +9,11 @@ export interface DragResizeOptions {
   minWidth?: number;
   minHeight?: number;
   onMoveStart?: () => void;
+  onEnd?: () => void;
 }
 
 export function attachDragResize(opts: DragResizeOptions): () => void {
-  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart } = opts;
+  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart, onEnd } = opts;
   const ac = new AbortController();
   const sig = ac.signal;
 
@@ -46,6 +47,7 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
   function onDragUp(): void {
     dragHandle.removeEventListener('pointermove', onDragMove);
+    onEnd?.();
   }
 
   dragHandle.addEventListener('pointerdown', onDragDown, { signal: sig });
@@ -95,6 +97,7 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
       function onResizeUp(): void {
         h.removeEventListener('pointermove', onResizeMove);
+        onEnd?.();
       }
 
       h.addEventListener('pointermove', onResizeMove, { signal: sig });

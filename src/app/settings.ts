@@ -5,6 +5,14 @@
 
 const STORAGE_KEY = 'q-app-settings';
 
+export interface PanelLayout {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface AppSettings {
   ttsVoice: string;
   ttsRate: number;
@@ -12,6 +20,7 @@ export interface AppSettings {
   micDeviceId: string;
   vadMs: number;
   theme: string;
+  panelLayouts?: PanelLayout[];
 }
 
 const DEFAULTS: AppSettings = {
