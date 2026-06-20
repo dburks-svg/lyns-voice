@@ -3,24 +3,21 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Real-time 3D neon-blue Jarvis avatar overlay for the mcp-voice-hooks browser UI.",
+  "description": "Real-time 3D neon-blue Jarvis avatar desktop app (Tauri v2 + Three.js).",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:lib": "vite build --config vite.lib.config.ts && node scripts/build-assets.mjs",
     "preview": "vite preview",
+    "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "e2e:install": "playwright install chromium",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "vendor:three": "node scripts/vendor-three.mjs",
-    "inject": "node scripts/inject.mjs",
-    "inject:revert": "node scripts/inject.mjs --revert"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

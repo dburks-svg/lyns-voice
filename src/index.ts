@@ -1,7 +1,6 @@
 /**
- * Public API barrel (no side effects). The demo imports this directly; the
- * injected host bundle (`bundle.ts`) re-exports it as the global `JarvisAvatar`
- * and adds auto-attach.
+ * Public API barrel (no side effects). The Tauri app shell and the demo import
+ * this directly.
  */
 
 // Keep in sync with package.json "version"; tests/version.test.ts enforces it.
@@ -27,8 +26,8 @@ export { SpeechReactor } from './audio/SpeechReactor';
 export type { SpeechReactorOptions } from './audio/SpeechReactor';
 export { MediaTts } from './audio/MediaTts';
 export type { MediaTtsOptions, AudioContextLike } from './audio/MediaTts';
-export { attachToVoiceHooks, deriveState } from './integration/voiceHooksAdapter';
-export type { VoiceSignals, VoiceHooksHandle } from './integration/voiceHooksAdapter';
+export { deriveState } from './integration/signals';
+export type { VoiceSignals } from './integration/signals';
 export { safeSetText, prefersReducedMotion } from './integration/dom';
 export { DEFAULT_CONFIG, cloneConfig } from './config/config';
 export type {
@@ -48,8 +47,3 @@ export type { ParsedMood } from './mood/moodProtocol';
 export { MOODS, MOOD_TABLE, isMood } from './mood/moods';
 export type { Mood, MoodVisual } from './mood/moods';
 export { lerpHex, lerp, clamp01 } from './mood/colorBlend';
-export { TranscriptMoodObserver } from './integration/transcriptMoodObserver';
-export type { TranscriptMoodObserverOptions } from './integration/transcriptMoodObserver';
-export { enableTakeover, latestAssistantText } from './integration/takeover';
-export type { TakeoverHandle, TakeoverOptions } from './integration/takeover';
-export type { AttachOptions } from './integration/voiceHooksAdapter';

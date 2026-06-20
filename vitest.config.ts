@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
  * SpeechSynthesisUtterance shims, AnalyserNode mocks) are available without a
  * real browser. WebGL is not provided by happy-dom, so renderer-dependent code
  * is exercised through mocks; pure logic (noise, deformation, state machine,
- * injector) is tested directly.
+ * signals) is tested directly.
  */
 export default defineConfig({
   test: {
@@ -14,7 +14,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts', 'scripts/**/*.mjs'],
+      include: ['src/**/*.ts'],
     },
   },
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveState } from '../src/integration/voiceHooksAdapter';
+import { deriveState } from '../src/integration/signals';
 import { safeSetText } from '../src/integration/dom';
 
 describe('deriveState', () => {

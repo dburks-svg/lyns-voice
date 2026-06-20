@@ -1,8 +1,7 @@
 /**
  * The Tauri desktop host adapter: the seam between the native backend and the
- * avatar's four-state controller. It is the standalone-app counterpart to
- * `voiceHooksAdapter`, producing the SAME `VoiceSignals` transitions from Tauri
- * commands/events instead of DOM/SpeechRecognition heuristics.
+ * avatar's four-state controller. It produces `VoiceSignals` transitions from
+ * Tauri commands/events and feeds them through `deriveState` to the controller.
  *
  * Phase 1 wires only the TTS path: the Rust `tts_synthesize` command renders a
  * mood-stripped line to a WAV byte buffer with native Windows SAPI (no
