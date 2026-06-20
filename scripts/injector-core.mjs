@@ -15,9 +15,11 @@ export const MARKER_END = '<!-- AVATAR:END (jarvis-avatar) -->';
 /**
  * Asset files copied next to the target `index.html`. The script/style assets
  * are also referenced by the injected markup (see buildInjectionBlock); `head.glb`
- * is fetched at runtime by the bundle, so it is copied but never tagged. Script
- * load order matters: the vendored global `THREE` loads first, then GLTFLoader
- * (which augments `THREE`), then the avatar bundle that consumes both.
+ * is fetched at runtime by the bundle, and `favicon.ico` is requested
+ * automatically by the browser and served by the host's `express.static`, so
+ * both are copied but never tagged. Script load order matters: the vendored
+ * global `THREE` loads first, then GLTFLoader (which augments `THREE`), then the
+ * avatar bundle that consumes both.
  * @type {readonly string[]}
  */
 export const ASSET_FILES = Object.freeze([
@@ -26,6 +28,7 @@ export const ASSET_FILES = Object.freeze([
   'avatar.css',
   'avatar.js',
   'head.glb',
+  'favicon.ico',
 ]);
 
 /**

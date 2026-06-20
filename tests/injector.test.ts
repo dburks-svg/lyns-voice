@@ -38,6 +38,11 @@ describe('buildInjectionBlock', () => {
     expect(ASSET_FILES).toContain('head.glb');
     expect(buildInjectionBlock()).not.toContain('head.glb');
   });
+
+  it('copies favicon.ico but never tags it (the browser auto-requests it)', () => {
+    expect(ASSET_FILES).toContain('favicon.ico');
+    expect(buildInjectionBlock()).not.toContain('favicon.ico');
+  });
 });
 
 describe('injectIntoHtml', () => {

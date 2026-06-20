@@ -47,6 +47,7 @@ const ASSET_SOURCES = {
   'avatar.js': path.join(REPO_ROOT, 'dist', 'avatar.js'),
   'avatar.css': path.join(REPO_ROOT, 'dist', 'avatar.css'),
   'head.glb': path.join(REPO_ROOT, 'vendor', 'head.glb'),
+  'favicon.ico': path.join(REPO_ROOT, 'assets', 'favicon.ico'),
 };
 
 /**
