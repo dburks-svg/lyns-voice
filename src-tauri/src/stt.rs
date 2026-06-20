@@ -18,6 +18,7 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -40,7 +41,7 @@ const MODEL_SHA256: &str = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb89
 const SAMPLE_RATE: usize = 16_000;
 const FRAME: usize = 480; // 30 ms @ 16 kHz (a valid webrtc-vad frame length)
 const ONSET_FRAMES: u32 = 3; // ~90 ms of voiced frames opens an utterance
-const HANGOVER_FRAMES: u32 = 27; // ~810 ms of trailing silence ends it
+const DEFAULT_HANGOVER_FRAMES: u32 = 27; // ~810 ms of trailing silence ends it
 const PREROLL_SAMPLES: usize = FRAME * 10; // ~300 ms kept before onset
 const MAX_UTTERANCE_SAMPLES: usize = SAMPLE_RATE * 15; // hard cap (~15 s)
 const MIN_UTTERANCE_SAMPLES: usize = SAMPLE_RATE / 4; // discard < ~250 ms as noise
@@ -143,13 +144,26 @@ enum Outcome {
 /// classification at a time, it opens an utterance after a short voiced onset and
 /// closes it after a trailing-silence hangover (or a max-length cap). No VAD and
 /// no Tauri here, so the onset/hangover/preroll logic is unit-testable.
-#[derive(Default)]
 struct Endpointer {
-    preroll: VecDeque<i16>, // recent pre-speech audio (so the onset is not clipped)
-    speech: Vec<i16>,       // the utterance being accumulated
+    preroll: VecDeque<i16>,
+    speech: Vec<i16>,
     in_speech: bool,
     voiced_run: u32,
     silence_run: u32,
+    hangover: Arc<AtomicU32>,
+}
+
+impl Default for Endpointer {
+    fn default() -> Self {
+        Self {
+            preroll: VecDeque::new(),
+            speech: Vec::new(),
+            in_speech: false,
+            voiced_run: 0,
+            silence_run: 0,
+            hangover: Arc::new(AtomicU32::new(DEFAULT_HANGOVER_FRAMES)),
+        }
+    }
 }
 
 impl Endpointer {
@@ -172,7 +186,8 @@ impl Endpointer {
         } else {
             self.speech.extend_from_slice(frame);
             self.silence_run = if voiced { 0 } else { self.silence_run + 1 };
-            if self.silence_run >= HANGOVER_FRAMES || self.speech.len() >= MAX_UTTERANCE_SAMPLES {
+            let hangover = self.hangover.load(Ordering::Relaxed);
+            if self.silence_run >= hangover || self.speech.len() >= MAX_UTTERANCE_SAMPLES {
                 Outcome::Utterance(self.take())
             } else {
                 Outcome::None
@@ -208,15 +223,12 @@ struct SttSession {
 }
 
 impl SttSession {
-    fn new() -> Self {
+    fn new(hangover: Arc<AtomicU32>) -> Self {
         use webrtc_vad::{SampleRate, Vad, VadMode};
-        // Quality mode: least aggressive non-speech filtering (best for dictation).
         let vad = Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality);
-        Self {
-            vad,
-            carry: Vec::with_capacity(FRAME * 4),
-            ep: Endpointer::default(),
-        }
+        let mut ep = Endpointer::default();
+        ep.hangover = hangover;
+        Self { vad, carry: Vec::with_capacity(FRAME * 4), ep }
     }
 
     /// Re-chunk arrivals into exact VAD frames, classify, and drive endpointing;
@@ -278,13 +290,20 @@ enum WorkerMsg {
     Finalize,
 }
 
-#[derive(Default)]
 pub struct SttState {
-    // Loaded once on first start (model load is slow); cloned into each worker.
     transcriber: Mutex<Option<Arc<Transcriber>>>,
-    // Sender to the live worker thread; None when stopped. Replacing or clearing
-    // it drops the Sender, which ends the previous worker (its recv() errors).
     worker: Mutex<Option<std::sync::mpsc::Sender<WorkerMsg>>>,
+    hangover: Arc<AtomicU32>,
+}
+
+impl Default for SttState {
+    fn default() -> Self {
+        Self {
+            transcriber: Mutex::new(None),
+            worker: Mutex::new(None),
+            hangover: Arc::new(AtomicU32::new(DEFAULT_HANGOVER_FRAMES)),
+        }
+    }
 }
 
 // --- Commands ---------------------------------------------------------------
@@ -321,10 +340,12 @@ pub async fn stt_start(app: AppHandle) -> Result<(), String> {
     // wraps a raw pointer and is !Send, so it must stay on one thread; the
     // webview's frames reach it only through this channel (non-blocking enqueue).
     let (tx, rx) = std::sync::mpsc::channel::<WorkerMsg>();
-    *app.state::<SttState>().worker.lock().map_err(lock_err)? = Some(tx);
+    let state = app.state::<SttState>();
+    *state.worker.lock().map_err(lock_err)? = Some(tx);
+    let hangover = Arc::clone(&state.hangover);
     let app_worker = app.clone();
     std::thread::spawn(move || {
-        let mut session = SttSession::new();
+        let mut session = SttSession::new(hangover);
         while let Ok(msg) = rx.recv() {
             match msg {
                 WorkerMsg::Frames(pcm) => session.push(&pcm, &app_worker, &transcriber),
@@ -365,6 +386,16 @@ pub fn stt_finalize(app: AppHandle) -> Result<(), String> {
     if let Some(tx) = app.state::<SttState>().worker.lock().map_err(lock_err)?.as_ref() {
         let _ = tx.send(WorkerMsg::Finalize);
     }
+    Ok(())
+}
+
+/// Set the VAD trailing-silence hangover in milliseconds (clamped to 300..2000).
+/// Takes effect immediately, even mid-utterance.
+#[tauri::command]
+pub fn stt_set_vad_hangover(app: AppHandle, ms: u32) -> Result<(), String> {
+    let ms = ms.clamp(300, 2000);
+    let frames = (ms as f64 / 30.0).round() as u32;
+    app.state::<SttState>().hangover.store(frames, Ordering::Relaxed);
     Ok(())
 }
 
@@ -517,7 +548,7 @@ mod tests {
         for _ in 0..5 {
             assert!(matches!(ep.push(true, &f), Outcome::None));
         }
-        for _ in 0..HANGOVER_FRAMES - 1 {
+        for _ in 0..DEFAULT_HANGOVER_FRAMES - 1 {
             assert!(matches!(ep.push(false, &f), Outcome::None));
         }
         match ep.push(false, &f) {

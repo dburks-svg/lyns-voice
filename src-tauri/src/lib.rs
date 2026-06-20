@@ -21,9 +21,11 @@ pub fn run() {
     .manage(terminal::TerminalState::default())
     .invoke_handler(tauri::generate_handler![
       tts::tts_synthesize,
+      tts::tts_list_voices,
       stt::stt_start,
       stt::stt_stop,
       stt::stt_finalize,
+      stt::stt_set_vad_hangover,
       stt::stt_push_frame,
       claude::claude_start,
       claude::claude_submit,

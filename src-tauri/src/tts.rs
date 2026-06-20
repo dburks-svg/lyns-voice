@@ -16,12 +16,22 @@
 
 use tauri::ipc::Response;
 
+/// List the names of all installed SAPI voices on this system.
+#[tauri::command]
+pub async fn tts_list_voices() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(list_voices)
+        .await
+        .map_err(|e| format!("TTS list voices join: {e}"))?
+}
+
 /// Synthesize `text` to a WAV byte buffer. `rate` is the SAPI rate, clamped to
-/// `-10..=10` (0 = normal). Returns the raw WAV bytes as a binary IPC `Response`
+/// `-10..=10` (0 = normal). `pitch` is the SAPI pitch offset, clamped to
+/// `-10..=10` (0 = normal). `voice` selects a specific voice by name (None =
+/// system default). Returns the raw WAV bytes as a binary IPC `Response`
 /// (an `ArrayBuffer` on the JS side), or an error string the frontend falls back
 /// on (so a synthesis failure degrades gracefully rather than throwing).
 #[tauri::command]
-pub async fn tts_synthesize(text: String, rate: Option<i32>) -> Result<Response, String> {
+pub async fn tts_synthesize(text: String, rate: Option<i32>, pitch: Option<i32>, voice: Option<String>) -> Result<Response, String> {
     if text.trim().is_empty() {
         return Err("text is empty".into());
     }
@@ -34,7 +44,8 @@ pub async fn tts_synthesize(text: String, rate: Option<i32>) -> Result<Response,
         return Err(format!("text too long ({char_count} chars; max {MAX_CHARS})"));
     }
     let rate = rate.unwrap_or(0).clamp(-10, 10);
-    let wav = tauri::async_runtime::spawn_blocking(move || synth_to_wav(&text, rate))
+    let pitch = pitch.unwrap_or(0).clamp(-10, 10);
+    let wav = tauri::async_runtime::spawn_blocking(move || synth_to_wav(&text, rate, pitch, voice.as_deref()))
         .await
         .map_err(|e| format!("TTS task failed to join: {e}"))??;
     Ok(Response::new(wav))
@@ -72,7 +83,7 @@ fn build_wav(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) 
 }
 
 #[cfg(windows)]
-fn synth_to_wav(text: &str, rate: i32) -> Result<Vec<u8>, String> {
+fn synth_to_wav(text: &str, rate: i32, pitch: i32, voice_name: Option<&str>) -> Result<Vec<u8>, String> {
     use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
     use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 
@@ -101,12 +112,12 @@ fn synth_to_wav(text: &str, rate: i32) -> Result<Vec<u8>, String> {
         // Every COM interface is created and dropped inside synth_inner, so all
         // are released before _guard runs CoUninitialize at scope end (releasing
         // after uninit is UB). The guard also runs on unwind.
-        synth_inner(text, rate)
+        synth_inner(text, rate, pitch, voice_name)
     }
 }
 
 #[cfg(windows)]
-unsafe fn synth_inner(text: &str, rate: i32) -> Result<Vec<u8>, String> {
+unsafe fn synth_inner(text: &str, rate: i32, pitch: i32, voice_name: Option<&str>) -> Result<Vec<u8>, String> {
     use std::ffi::c_void;
     use std::ptr;
     use windows::core::{GUID, PCWSTR};
@@ -151,13 +162,21 @@ unsafe fn synth_inner(text: &str, rate: i32) -> Result<Vec<u8>, String> {
     voice
         .SetOutput(&sp_stream, false)
         .map_err(|e| format!("SetOutput: {e}"))?;
+    if let Some(name) = voice_name {
+        select_voice_by_name(&voice, name)?;
+    }
     voice.SetRate(rate).map_err(|e| format!("SetRate: {e}"))?;
 
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
+    let (speak_text, flags) = if pitch != 0 {
+        // Wrap in SAPI XML pitch tag; escape user text so '<' is not parsed.
+        let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let xml = format!("<pitch absmiddle=\"{pitch}\"/>{escaped}");
+        (xml, SPF_DEFAULT.0 as u32)
+    } else {
+        (text.to_string(), (SPF_DEFAULT.0 | SPF_IS_NOT_XML.0) as u32)
+    };
+    let mut wide: Vec<u16> = speak_text.encode_utf16().collect();
     wide.push(0);
-    // SPF_IS_NOT_XML: treat the text as plain, so a stray '<' is never parsed as
-    // SSML/XML markup.
-    let flags = (SPF_DEFAULT.0 | SPF_IS_NOT_XML.0) as u32;
     voice
         .Speak(PCWSTR(wide.as_ptr()), flags, None)
         .map_err(|e| format!("Speak: {e}"))?;
@@ -189,8 +208,92 @@ unsafe fn synth_inner(text: &str, rate: i32) -> Result<Vec<u8>, String> {
     Ok(build_wav(&pcm, CHANNELS, SAMPLE_RATE, BITS))
 }
 
+#[cfg(windows)]
+fn list_voices() -> Result<Vec<String>, String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
+    use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+
+    struct ComGuard;
+    impl Drop for ComGuard { fn drop(&mut self) { unsafe { CoUninitialize() }; } }
+
+    unsafe {
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let _guard = if hr == RPC_E_CHANGED_MODE { None } else {
+            hr.ok().map_err(|e| format!("CoInitializeEx: {e}"))?;
+            Some(ComGuard)
+        };
+
+        let cat: ISpObjectTokenCategory = CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL)
+            .map_err(|e| format!("create category: {e}"))?;
+        let cat_id = voices_category_id();
+        cat.SetId(PCWSTR(cat_id.as_ptr()), false)
+            .map_err(|e| format!("SetId: {e}"))?;
+
+        let tokens = cat.EnumTokens(None, None).map_err(|e| format!("EnumTokens: {e}"))?;
+        let mut count: u32 = 0;
+        tokens.GetCount(&mut count).map_err(|e| format!("GetCount: {e}"))?;
+
+        let mut names = Vec::new();
+        for i in 0..count {
+            if let Ok(token) = tokens.Item(i) {
+                if let Ok(pw) = token.OpenKey(PCWSTR::null()).and_then(|attrs| attrs.GetStringValue(PCWSTR::null())) {
+                    if let Ok(name) = pw.to_string() {
+                        if !name.is_empty() { names.push(name); }
+                    }
+                }
+            }
+        }
+        Ok(names)
+    }
+}
+
+#[cfg(windows)]
+unsafe fn select_voice_by_name(voice: &windows::Win32::Media::Speech::ISpVoice, name: &str) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
+
+    let cat: ISpObjectTokenCategory = CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL)
+        .map_err(|e| format!("create category: {e}"))?;
+    let cat_id = voices_category_id();
+    cat.SetId(PCWSTR(cat_id.as_ptr()), false)
+        .map_err(|e| format!("SetId: {e}"))?;
+
+    let tokens = cat.EnumTokens(None, None).map_err(|e| format!("EnumTokens: {e}"))?;
+    let mut count: u32 = 0;
+    tokens.GetCount(&mut count).map_err(|e| format!("GetCount: {e}"))?;
+
+    for i in 0..count {
+        if let Ok(token) = tokens.Item(i) {
+            if let Ok(pw) = token.OpenKey(PCWSTR::null()).and_then(|attrs| attrs.GetStringValue(PCWSTR::null())) {
+                if pw.to_string().unwrap_or_default() == name {
+                    voice.SetVoice(&token).map_err(|e| format!("SetVoice: {e}"))?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// SAPI voices category registry path as a null-terminated UTF-16 string.
+#[cfg(windows)]
+fn voices_category_id() -> Vec<u16> {
+    "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
 #[cfg(not(windows))]
-fn synth_to_wav(_text: &str, _rate: i32) -> Result<Vec<u8>, String> {
+fn list_voices() -> Result<Vec<String>, String> {
+    Ok(vec![])
+}
+
+#[cfg(not(windows))]
+fn synth_to_wav(_text: &str, _rate: i32, _pitch: i32, _voice_name: Option<&str>) -> Result<Vec<u8>, String> {
     Err("native TTS is only implemented on Windows".into())
 }
 
@@ -230,7 +333,7 @@ mod tests {
     #[test]
     #[ignore = "drives the real SAPI engine; run with --ignored"]
     fn synthesizes_a_real_wav() {
-        let wav = super::synth_to_wav("Testing native speech synthesis, sir.", 0)
+        let wav = super::synth_to_wav("Testing native speech synthesis, sir.", 0, 0, None)
             .expect("synthesis should succeed");
         assert_eq!(&wav[0..4], b"RIFF");
         assert_eq!(&wav[8..12], b"WAVE");

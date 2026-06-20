@@ -1,8 +1,9 @@
-import { VERSION, type AvatarState } from '../index';
+import { VERSION } from '../index';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
+import { loadSettings, saveSettings, type AppSettings } from './settings';
 
 /**
  * Q desktop app entry.
@@ -44,6 +45,8 @@ async function bootstrap(): Promise<void> {
   };
   requestAnimationFrame(tickPanels);
 
+  const settings = loadSettings();
+
   const handle = attachTauri({
     root,
     caption: document.getElementById('caption'),
@@ -51,6 +54,12 @@ async function bootstrap(): Promise<void> {
     onActivity: (a) => panels.addActivity(a.name, a.target),
     onUsage: (u) => panels.addUsage(u),
     onBands: (bands) => panels.pushBands(bands),
+    ttsSettings: () => ({
+      rate: settings.ttsRate,
+      pitch: settings.ttsPitch,
+      voice: settings.ttsVoice,
+    }),
+    micDeviceId: () => settings.micDeviceId,
   });
 
   // Settings drawer toggle
@@ -62,39 +71,7 @@ async function bootstrap(): Promise<void> {
     settingsBtn.classList.toggle('active', !open);
   });
 
-  for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-state]')) {
-    button.addEventListener('click', () => {
-      const next = button.dataset.state as AvatarState | undefined;
-      if (next) {
-        handle.setState(next);
-      }
-    });
-  }
-
-  // Phase 1 manual TTS trigger: speak the typed line through native SAPI. Try a
-  // mood tag (e.g. "<<mood:happy>> hello") to confirm it tints and is never heard
-  // or shown. The Claude bridge drives this same path in Phase 3.
-  const speakInput = document.getElementById('speak-input') as HTMLInputElement | null;
-  const speakButton = document.getElementById('speak-btn');
-  const doSpeak = (): void => {
-    const text = speakInput?.value.trim();
-    if (!text) {
-      return;
-    }
-    void handle.speak(text).then((ok) => {
-      if (!ok && label) {
-        label.textContent = 'voice unavailable (TTS failed)';
-      }
-    });
-  };
-  speakButton?.addEventListener('click', doSpeak);
-  speakInput?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      doSpeak();
-    }
-  });
-
-  // Phase 2: tap-to-talk. Mic capture + local Whisper STT auto-finalize on a
+  // Tap-to-talk. Mic capture + local Whisper STT auto-finalize on a
   // pause; the recognized text appears in the caption. (Phase 3 sends it to Claude.)
   // Two controls share one toggle: the HUD `#mic-btn` and the footer `#mic-fab`
   // TAP TO TALK; both reflect the listening state.
@@ -156,6 +133,9 @@ async function bootstrap(): Promise<void> {
     });
   });
 
+  // --- Settings controls ---
+  wireSettings(settings);
+
   // Terminal windows: spawn draggable/resizable shells inside the app.
   const terminalLayer = document.getElementById('terminal-layer');
   const terminalBtn = document.getElementById('terminal-btn');
@@ -214,6 +194,104 @@ async function bootstrap(): Promise<void> {
 
   if (label) {
     label.textContent = `Q v${VERSION}`;
+  }
+}
+
+function wireSettings(settings: AppSettings): void {
+  const tauriGlobal = (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+  const invoke = tauriGlobal
+    ? (tauriGlobal as { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> }).invoke.bind(tauriGlobal)
+    : null;
+
+  const rateSlider = document.getElementById('set-rate') as HTMLInputElement | null;
+  const rateVal = document.getElementById('set-rate-val');
+  const pitchSlider = document.getElementById('set-pitch') as HTMLInputElement | null;
+  const pitchVal = document.getElementById('set-pitch-val');
+  const vadSlider = document.getElementById('set-vad') as HTMLInputElement | null;
+  const vadVal = document.getElementById('set-vad-val');
+  const voiceSelect = document.getElementById('set-voice') as HTMLSelectElement | null;
+  const micSelect = document.getElementById('set-mic') as HTMLSelectElement | null;
+
+  // Restore saved values into the controls
+  if (rateSlider) { rateSlider.value = String(settings.ttsRate); }
+  if (rateVal) { rateVal.textContent = String(settings.ttsRate); }
+  if (pitchSlider) { pitchSlider.value = String(settings.ttsPitch); }
+  if (pitchVal) { pitchVal.textContent = String(settings.ttsPitch); }
+  if (vadSlider) { vadSlider.value = String(settings.vadMs); }
+  if (vadVal) { vadVal.textContent = `${settings.vadMs}ms`; }
+
+  // Rate slider
+  rateSlider?.addEventListener('input', () => {
+    settings.ttsRate = Number(rateSlider.value);
+    if (rateVal) rateVal.textContent = rateSlider.value;
+    saveSettings(settings);
+  });
+
+  // Pitch slider
+  pitchSlider?.addEventListener('input', () => {
+    settings.ttsPitch = Number(pitchSlider.value);
+    if (pitchVal) pitchVal.textContent = pitchSlider.value;
+    saveSettings(settings);
+  });
+
+  // VAD sensitivity slider
+  vadSlider?.addEventListener('input', () => {
+    settings.vadMs = Number(vadSlider.value);
+    if (vadVal) vadVal.textContent = `${vadSlider.value}ms`;
+    saveSettings(settings);
+    invoke?.('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
+  });
+  // Apply saved VAD on startup
+  if (invoke && settings.vadMs !== 810) {
+    invoke('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
+  }
+
+  // Voice selector: populate from SAPI
+  if (voiceSelect && invoke) {
+    void invoke('tts_list_voices').then((voices) => {
+      for (const name of voices as string[]) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        voiceSelect.appendChild(opt);
+      }
+      if (settings.ttsVoice) voiceSelect.value = settings.ttsVoice;
+    }).catch(() => {});
+  }
+  voiceSelect?.addEventListener('change', () => {
+    settings.ttsVoice = voiceSelect.value;
+    saveSettings(settings);
+  });
+
+  // Mic device selector: populate from browser API
+  if (micSelect) {
+    const populateMics = (): void => {
+      void navigator.mediaDevices.enumerateDevices().then((devices) => {
+        const inputs = devices.filter((d) => d.kind === 'audioinput');
+        while (micSelect.options.length > 1) micSelect.options.remove(1);
+        for (const dev of inputs) {
+          const opt = document.createElement('option');
+          opt.value = dev.deviceId;
+          opt.textContent = dev.label || `mic ${dev.deviceId.slice(0, 8)}`;
+          micSelect.appendChild(opt);
+        }
+        if (settings.micDeviceId) micSelect.value = settings.micDeviceId;
+      }).catch(() => {});
+    };
+    populateMics();
+    navigator.mediaDevices?.addEventListener('devicechange', populateMics);
+  }
+  micSelect?.addEventListener('change', () => {
+    settings.micDeviceId = micSelect.value;
+    saveSettings(settings);
+  });
+
+  // Theme buttons
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.theme-btn')) {
+    btn.addEventListener('click', () => {
+      for (const b of document.querySelectorAll('.theme-btn')) b.classList.remove('active');
+      btn.classList.add('active');
+    });
   }
 }
 

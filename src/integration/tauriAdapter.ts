@@ -140,13 +140,16 @@ export function toArrayBuffer(raw: unknown): ArrayBuffer {
   return new ArrayBuffer(0);
 }
 
+/** Callback that provides current TTS settings for each synthesis call. */
+export type TtsSettingsGetter = () => { rate: number; pitch: number; voice: string };
+
 /**
  * A `MediaTts` `fetchImpl` that ignores the URL and synthesizes through the Rust
  * `tts_synthesize` command. `MediaTts` posts `{ text }` as the JSON body, so we
  * read the text back out of it; on any failure we report `ok: false` so the
  * caller falls back gracefully (matching the server-route contract).
  */
-export function tauriTtsFetch(invoke: InvokeFn): FetchImpl {
+export function tauriTtsFetch(invoke: InvokeFn, getSettings?: TtsSettingsGetter): FetchImpl {
   return async (_input, init) => {
     let text = '';
     if (init?.body) {
@@ -157,7 +160,12 @@ export function tauriTtsFetch(invoke: InvokeFn): FetchImpl {
       }
     }
     try {
-      const raw = await invoke<unknown>('tts_synthesize', { text });
+      const s = getSettings?.() ?? { rate: 0, pitch: 0, voice: '' };
+      const args: Record<string, unknown> = { text };
+      if (s.rate) args.rate = s.rate;
+      if (s.pitch) args.pitch = s.pitch;
+      if (s.voice) args.voice = s.voice;
+      const raw = await invoke<unknown>('tts_synthesize', args);
       const bytes = toArrayBuffer(raw);
       return { ok: true, arrayBuffer: async () => bytes };
     } catch {
@@ -193,6 +201,10 @@ export interface TauriAdapterOptions {
   onBands?: (bands: Float32Array) => void;
   /** Injectable window; defaults to the global `window`. */
   view?: Window;
+  /** Provides current TTS settings (rate/pitch/voice) for each synthesis call. */
+  ttsSettings?: TtsSettingsGetter;
+  /** Provides the preferred mic device ID for STT capture. */
+  micDeviceId?: () => string;
 }
 
 export interface TauriHandle {
@@ -310,7 +322,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // `tts_synthesize`, decoded and played through Web Audio, with the Speaking
   // animation driven off the real amplitude envelope.
   const mediaTts = new MediaTts({
-    fetchImpl: tauriTtsFetch(invoke),
+    fetchImpl: tauriTtsFetch(invoke, options.ttsSettings),
     onSpeakingStart,
     onSpeakingEnd,
     onBoundary,
@@ -370,14 +382,14 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // worklet pushes 16 kHz Int16 frames to the Rust VAD/STT worker.
   const capture = new SttCapture({
     onFrame: (frame) => {
-      // Raw binary body (NOT a JSON number array): pass the ArrayBuffer directly.
       void invoke('stt_push_frame', frame.buffer as ArrayBuffer).catch(() => undefined);
     },
     onLevel: (level) => controller.setMicLevel(level),
     onBands: (bands) => {
       controller.setMicBands(bands);
-      options.onBands?.(bands); // HUD waveform reads the live mic spectrum
+      options.onBands?.(bands);
     },
+    get deviceId() { return options.micDeviceId?.() ?? ''; },
   });
 
   // The Listening STATE follows the mic being engaged (set in start/stopListening),

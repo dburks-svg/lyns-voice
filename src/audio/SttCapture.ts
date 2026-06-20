@@ -29,6 +29,8 @@ export interface SttCaptureOptions {
   onBands?: (bands: Float32Array) => void;
   bandCount?: number;
   fftSize?: number;
+  /** Preferred mic device ID (from enumerateDevices). Empty string = system default. */
+  deviceId?: string;
   /** Injectable for tests; defaults to navigator.mediaDevices.getUserMedia. */
   getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   /** Injectable for tests; defaults to a new AudioContext. */
@@ -73,15 +75,16 @@ export class SttCapture {
 
     let stream: MediaStream;
     try {
-      stream = await getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true, // cancels the avatar's own TTS bleed
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+      const audioConstraints: MediaTrackConstraints = {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      };
+      if (this.opts.deviceId) {
+        audioConstraints.deviceId = { exact: this.opts.deviceId };
+      }
+      stream = await getUserMedia({ audio: audioConstraints, video: false });
     } catch {
       return false; // permission denied / no device
     }

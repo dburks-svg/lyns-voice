@@ -42,33 +42,9 @@
       <button id="terminal-btn">+ terminal</button>
     </div>
 
-    <!-- Settings drawer: slides down from the HUD bar. Contains all the
-         debug/voice/Claude controls that used to live in the top row. -->
+    <!-- Settings drawer: slides down from the HUD bar. -->
     <div id="settings-drawer" class="settings-drawer" hidden>
       <div class="settings-inner">
-        <div class="settings-section">
-          <span class="settings-label">state</span>
-          <div class="hud-group">
-            <button data-state="idle">idle</button>
-            <button data-state="listening">listening</button>
-            <button data-state="thinking">thinking</button>
-            <button data-state="speaking">speaking</button>
-          </div>
-        </div>
-        <div class="settings-section">
-          <span class="settings-label">voice</span>
-          <div class="hud-group">
-            <input
-              id="speak-input"
-              class="speak-input"
-              type="text"
-              placeholder="say something (try &lt;&lt;mood:happy&gt;&gt; hello)"
-              autocomplete="off"
-            />
-            <button id="speak-btn">speak</button>
-            <button id="mic-btn">talk</button>
-          </div>
-        </div>
         <div class="settings-section">
           <span class="settings-label">claude</span>
           <div class="hud-group">
@@ -80,6 +56,47 @@
               autocomplete="off"
             />
             <button id="claude-btn">connect claude</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="settings-label">mic</span>
+          <div class="hud-group settings-row">
+            <button id="mic-btn">talk</button>
+            <select id="set-mic" class="settings-select"><option value="">default mic</option></select>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="settings-label">voice</span>
+          <div class="hud-group settings-col">
+            <select id="set-voice" class="settings-select"><option value="">default voice</option></select>
+            <div class="settings-slider-row">
+              <span class="settings-slider-label">speed</span>
+              <input id="set-rate" type="range" min="-10" max="10" value="0" class="settings-range" />
+              <span id="set-rate-val" class="settings-slider-val">0</span>
+            </div>
+            <div class="settings-slider-row">
+              <span class="settings-slider-label">pitch</span>
+              <input id="set-pitch" type="range" min="-10" max="10" value="0" class="settings-range" />
+              <span id="set-pitch-val" class="settings-slider-val">0</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="settings-label">vad</span>
+          <div class="hud-group settings-col">
+            <div class="settings-slider-row">
+              <span class="settings-slider-label">pause</span>
+              <input id="set-vad" type="range" min="300" max="2000" step="30" value="810" class="settings-range" />
+              <span id="set-vad-val" class="settings-slider-val">810ms</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <span class="settings-label">theme</span>
+          <div class="hud-group settings-row">
+            <button class="theme-btn" data-theme="cyan">cyan</button>
+            <button class="theme-btn active" data-theme="aurora">aurora</button>
+            <button class="theme-btn" data-theme="ember">ember</button>
           </div>
         </div>
       </div>
