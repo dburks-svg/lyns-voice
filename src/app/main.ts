@@ -1,17 +1,14 @@
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DEFAULT_CONFIG, VERSION, type AvatarState } from '../index';
+import { VERSION, type AvatarState } from '../index';
 import { attachTauri } from '../integration/tauriAdapter';
-import headUrl from '../../vendor/head.glb?url';
 
 /**
  * Jarvis desktop app entry.
  *
- * Mounts the avatar full-window in the native Tauri webview through
- * `attachTauri`, which owns the voice-signal seam and the TTS path. A temporary
- * debug cluster cycles the four states and drives a manual "speak" until the
- * STT (Phase 2) and Claude bridge (Phase 3) adapters take over. The avatar
- * rendering, state machine, mood, and TTS are reused verbatim; only the shell is
- * new.
+ * Mounts the holographic SVG orb into the FUI stage through `attachTauri`, which
+ * owns the voice-signal seam and the TTS path. The top HUD cluster cycles the
+ * four states and drives a manual "speak" until the STT (Phase 2) and Claude
+ * bridge (Phase 3) adapters take over. The state machine, mood, and TTS are
+ * reused verbatim; only the renderer (SVG) and the shell are new.
  */
 function bootstrap(): void {
   const root = document.getElementById('avatar-root');
@@ -23,11 +20,6 @@ function bootstrap(): void {
   const handle = attachTauri({
     root,
     caption: document.getElementById('caption'),
-    avatarOptions: {
-      skin: DEFAULT_CONFIG.skin,
-      headUrl,
-      gltfLoaderFactory: () => new GLTFLoader(),
-    },
   });
 
   for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-state]')) {
@@ -64,23 +56,33 @@ function bootstrap(): void {
 
   // Phase 2: tap-to-talk. Mic capture + local Whisper STT auto-finalize on a
   // pause; the recognized text appears in the caption. (Phase 3 sends it to Claude.)
+  // Two controls share one toggle: the HUD `#mic-btn` and the footer `#mic-fab`
+  // TAP TO TALK; both reflect the listening state.
   const micButton = document.getElementById('mic-btn');
-  micButton?.addEventListener('click', () => {
+  const micFab = document.getElementById('mic-fab');
+  const reflectListening = (listening: boolean): void => {
+    if (micButton) {
+      micButton.textContent = listening ? 'stop' : 'talk';
+      micButton.classList.toggle('active', listening);
+    }
+    micFab?.classList.toggle('active', listening);
+  };
+  const toggleMic = (): void => {
     if (handle.isListening()) {
       handle.stopListening();
-      micButton.textContent = 'talk';
-      micButton.classList.remove('active');
+      reflectListening(false);
       return;
     }
     void handle.startListening().then((ok) => {
       if (ok) {
-        micButton.textContent = 'stop';
-        micButton.classList.add('active');
+        reflectListening(true);
       } else if (label) {
         label.textContent = 'mic permission denied';
       }
     });
-  });
+  };
+  micButton?.addEventListener('click', toggleMic);
+  micFab?.addEventListener('click', toggleMic);
 
   // Phase 3: connect a Claude Code session in a project dir. Once connected,
   // spoken utterances are sent to Claude and the reply is spoken back with mood.

@@ -14,8 +14,13 @@
  * spine.
  */
 
-import { Avatar, type AvatarOptions } from '../avatar/Avatar';
-import { AvatarController, type AvatarState } from '../avatar/AvatarController';
+import type { AvatarOptions } from '../avatar/Avatar';
+import { JarvisOrbAvatar } from '../avatar/JarvisOrbAvatar';
+import {
+  AvatarController,
+  type AvatarState,
+  type ControllableAvatar,
+} from '../avatar/AvatarController';
 import { MediaTts, type MediaTtsOptions } from '../audio/MediaTts';
 import { SttCapture } from '../audio/SttCapture';
 import { MoodController } from '../mood/MoodController';
@@ -31,6 +36,25 @@ export type InvokeFn = <T>(cmd: string, args?: InvokeArgs) => Promise<T>;
 
 /** Minimal shape of Tauri's event `listen`; injectable for the same reason. */
 export type ListenFn = <T>(event: string, handler: (payload: T) => void) => Promise<() => void>;
+
+/**
+ * The structural renderer surface the adapter drives: the four-state
+ * `ControllableAvatar` contract plus the small lifecycle the host needs. Both the
+ * Three.js `Avatar` and the `JarvisOrbAvatar` satisfy it, so either can be injected.
+ */
+export interface AvatarLike extends ControllableAvatar {
+  reducedMotion: boolean;
+  beforeRender: ((time: number) => void) | null;
+  mount(container: HTMLElement): void;
+  start(): void;
+  resize(width: number, height: number): void;
+  dispose(): void;
+}
+
+/** Builds the renderer for the host; defaults to the `JarvisOrbAvatar`. */
+export type AvatarFactory = (options?: AvatarOptions) => AvatarLike;
+
+const defaultAvatarFactory: AvatarFactory = (options) => new JarvisOrbAvatar(options);
 
 /** The injectable `fetchImpl` shape `MediaTts` accepts (without exporting its internals). */
 type FetchImpl = NonNullable<MediaTtsOptions['fetchImpl']>;
@@ -92,8 +116,10 @@ export interface TauriAdapterOptions {
   caption?: HTMLElement | null;
   /** Optional label that mirrors the current avatar state (debug). */
   statusLabel?: HTMLElement | null;
-  /** Passed straight to `new Avatar(...)` (skin, headUrl, gltfLoaderFactory). */
+  /** Passed straight to the avatar factory (colors, etc.). */
   avatarOptions?: AvatarOptions;
+  /** Injectable renderer factory; defaults to the `JarvisOrbAvatar`. */
+  avatarFactory?: AvatarFactory;
   /** Injectable `invoke`; defaults to lazy `@tauri-apps/api/core`. */
   invoke?: InvokeFn;
   /** Injectable event `listen`; defaults to lazy `@tauri-apps/api/event`. */
@@ -105,7 +131,7 @@ export interface TauriAdapterOptions {
 }
 
 export interface TauriHandle {
-  avatar: Avatar;
+  avatar: AvatarLike;
   controller: AvatarController;
   /** Speak a (possibly mood-tagged) line: tint by mood, caption it, synth + animate. */
   speak(text: string): Promise<boolean>;
@@ -135,7 +161,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const view = options.view ?? window;
   const invoke = options.invoke ?? defaultInvoke;
 
-  const avatar = new Avatar(options.avatarOptions);
+  const avatar = (options.avatarFactory ?? defaultAvatarFactory)(options.avatarOptions);
   avatar.reducedMotion = prefersReducedMotion(view);
   avatar.mount(options.root);
 
@@ -148,7 +174,15 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
 
   const controller = new AvatarController({
     avatar,
-    onStateChange: (state) => safeSetText(options.statusLabel ?? null, state),
+    onStateChange: (state) => {
+      safeSetText(options.statusLabel ?? null, state);
+      // Reflect the state onto the body so the FUI layer (panels, HUD) can tint
+      // itself per state in pure CSS. Outside the voice path; purely cosmetic.
+      const body = view.document.body as HTMLElement | null;
+      if (body) {
+        body.dataset.state = state;
+      }
+    },
     moodProvider: mood,
   });
   avatar.beforeRender = (time) => controller.tick(time);

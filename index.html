@@ -7,38 +7,144 @@
     <link rel="stylesheet" href="/src/app/shell.css" />
   </head>
   <body class="jarvis-app">
+    <!-- Full-window holographic orb: a transparent WebGL canvas mounts here and
+         glows over the solid background; the FUI panels float on top of it. -->
     <div id="avatar-root"></div>
+
+    <!-- Top HUD: the existing control cluster. Every button/input id and its
+         wiring is unchanged (main.ts); only the styling is the new neon HUD.
+         Temporary debug controls until the STT/Claude adapters fully drive the
+         loop hands-free. -->
+    <div id="debug" class="debug-cluster hud-bar">
+      <div class="hud-group">
+        <button data-state="idle">idle</button>
+        <button data-state="listening">listening</button>
+        <button data-state="thinking">thinking</button>
+        <button data-state="speaking">speaking</button>
+      </div>
+      <div class="hud-group">
+        <input
+          id="speak-input"
+          class="speak-input"
+          type="text"
+          placeholder="say something (try &lt;&lt;mood:happy&gt;&gt; hello)"
+          autocomplete="off"
+        />
+        <button id="speak-btn">speak</button>
+        <button id="mic-btn">talk</button>
+      </div>
+      <div class="hud-group">
+        <input
+          id="claude-dir"
+          class="speak-input"
+          type="text"
+          placeholder="project dir for Claude (it can edit/run there by voice)"
+          autocomplete="off"
+        />
+        <button id="claude-btn">connect claude</button>
+      </div>
+    </div>
+
+    <!-- FUI stage: a three-column tactical layout beneath the HUD. Left/right
+         columns hold floating telemetry panels; the center cell mounts the
+         holographic orb; the footer carries the TAP TO TALK mic. -->
+    <main class="stage">
+      <aside class="col col-left">
+        <!-- Top-left: Python module -->
+        <section class="panel panel-python">
+          <header class="panel-head">
+            <span class="led"></span><span class="led"></span><span class="led"></span>
+            <span class="panel-title">Python</span>
+          </header>
+          <pre class="code"><span class="kw">import</span> claude_bridge <span class="kw">as</span> cc
+<span class="kw">from</span> jarvis <span class="kw">import</span> reactor, mood
+
+<span class="kw">def</span> <span class="fn">consciousness</span>(state):
+    core = reactor.spin(state)
+    mood.tint(core.glow)
+    <span class="kw">return</span> core.listen()</pre>
+        </section>
+
+        <!-- Bottom-left: Boot log + coordinate wave -->
+        <section class="panel panel-bootlog">
+          <header class="panel-head">
+            <span class="panel-title">SYS_BOOT</span>
+            <span class="panel-tag">/var/log</span>
+          </header>
+          <svg class="wave" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+            <polyline
+              class="wave-line"
+              points="0,40 16,38 32,30 48,44 64,22 80,34 96,12 112,40 128,30 144,48 160,20 176,36 192,26 208,42 224,18 240,32"
+            />
+            <line class="wave-axis" x1="0" y1="56" x2="240" y2="56" />
+          </svg>
+          <pre class="boot">[ <span class="ok">OK</span> ] neural_link.up
+[ <span class="ok">OK</span> ] audio_bus.sync
+[ <span class="busy">..</span> ] whisper.q drain</pre>
+        </section>
+      </aside>
+
+      <!-- Center column is intentionally empty: the full-window orb shows through
+           here, with the side panels floating over its glow. -->
+      <div class="col-center" aria-hidden="true"></div>
+
+      <aside class="col col-right">
+        <!-- Top-right: Network topography -->
+        <section class="panel panel-network">
+          <header class="panel-head">
+            <span class="panel-title">Network topography</span>
+          </header>
+          <svg class="netgraph" viewBox="0 0 240 130" aria-hidden="true">
+            <g class="net-links">
+              <line x1="40" y1="30" x2="120" y2="64" />
+              <line x1="120" y1="64" x2="200" y2="28" />
+              <line x1="120" y1="64" x2="64" y2="104" />
+              <line x1="120" y1="64" x2="190" y2="100" />
+              <line x1="40" y1="30" x2="64" y2="104" />
+              <line x1="200" y1="28" x2="190" y2="100" />
+            </g>
+            <g class="net-nodes">
+              <circle cx="40" cy="30" r="5" />
+              <circle cx="200" cy="28" r="5" />
+              <circle cx="120" cy="64" r="7" class="net-hub" />
+              <circle cx="64" cy="104" r="5" />
+              <circle cx="190" cy="100" r="5" />
+            </g>
+          </svg>
+        </section>
+
+        <!-- Bottom-right: Core integrity terminal -->
+        <section class="panel panel-core">
+          <header class="panel-head">
+            <span class="panel-title">CORE</span>
+            <span class="panel-tag blink">●</span>
+          </header>
+          <pre class="term">CORE_INTEGRITY: <span class="val">99.8%</span>
+NLP_BUFFER: <span class="ok">ACTIVE</span>
+NLOG CODEE: <span class="val">500</span></pre>
+        </section>
+      </aside>
+
+      <!-- Footer: circular TAP TO TALK mic. Proxies the same listening logic as
+           #mic-btn (wired together in main.ts). -->
+      <footer class="stage-footer">
+        <button id="mic-fab" class="mic-button" type="button" aria-label="Tap to talk">
+          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"
+            />
+            <path class="mic-stem" d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
+          </svg>
+          <span class="mic-label">TAP TO TALK</span>
+        </button>
+      </footer>
+    </main>
 
     <!-- Spoken reply caption: keeps replies READABLE even when audio is off.
          Mood markers are stripped before they reach here. -->
     <div id="caption" class="caption" aria-live="polite"></div>
 
-    <!-- Temporary debug cluster: cycles the four states and drives a manual
-         "speak" through native SAPI TTS until the STT/Claude adapters take over
-         (Phases 2-3). Removed once the real loop lands. -->
-    <div id="debug" class="debug-cluster">
-      <button data-state="idle">idle</button>
-      <button data-state="listening">listening</button>
-      <button data-state="thinking">thinking</button>
-      <button data-state="speaking">speaking</button>
-      <input
-        id="speak-input"
-        class="speak-input"
-        type="text"
-        placeholder="say something (try &lt;&lt;mood:happy&gt;&gt; hello)"
-        autocomplete="off"
-      />
-      <button id="speak-btn">speak</button>
-      <button id="mic-btn">talk</button>
-      <input
-        id="claude-dir"
-        class="speak-input"
-        type="text"
-        placeholder="project dir for Claude (required; it can edit/run there by voice)"
-        autocomplete="off"
-      />
-      <button id="claude-btn">connect claude</button>
-    </div>
+    <!-- Current state label (also reflected onto body[data-state]). -->
     <div id="status" class="status"></div>
 
     <script type="module" src="/src/app/main.ts"></script>
