@@ -21,10 +21,15 @@ preserved; the shell is now a real window.
 - **Four reactive states** driven by real voice signals: Idle, Listening, Thinking, Speaking.
 - A **holographic Q orb** (Three.js) centerpiece on a three-column tactical HUD; the
   orb shifts color with both the activity state and the mood.
-- **Four live telemetry panels**, fed by the voice loop:
+- **Three switchable themes** (cyan, aurora, ember) with distinct color palettes that drive
+  the orb, HUD, and mood tints; persisted across sessions.
+- **Spawnable terminal windows:** floating, draggable, resizable shells with tabbed sessions,
+  so you can work alongside the voice loop without leaving Q.
+- **Settings panel:** configure TTS voice/speed/pitch, mic device, VAD pause sensitivity,
+  and theme; all changes persist to localStorage and take effect immediately.
+- **Live telemetry panels** (draggable, resizable), fed by the voice loop:
   - **Transcript** (you and Q)
-  - **Activity** (each tool Claude runs this turn: Read, Edit, Bash, ...)
-  - **Session** (accumulated tokens in/out, cost, turns, uptime)
+  - **Session strip** (accumulated tokens in/out, cost, turns, uptime, latest activity)
   - **Audio** (a live oscilloscope of your microphone)
 - A **mood layer**: Claude emits a tiny `<<mood:NAME>>` tag that tints the orb and is always
   stripped before it is spoken or shown. See [Mood](#mood).
@@ -108,24 +113,26 @@ silently removed. With no tag it stays neutral. Add the one-line convention to y
 ```
 src/
   app/                     Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html
+    terminal/              TerminalPanel, TerminalInstance, TerminalManager, dragResize, CSS
   avatar/
     QOrbAvatar.ts          Adapter: drives the orb through the ControllableAvatar seam
     jarvisOrb/             Vendored MIT Three.js orb (renderer.ts + states.ts; see its LICENSE)
-    AvatarController.ts    idle|listening|thinking|speaking state machine
+    AvatarController.ts    idle|listening|thinking|speaking state machine (+ mood, FFT bands)
     Avatar.ts, reactor.ts, shaders.ts, gltf.ts, noise.ts, deformation.ts   (demo renderers)
   audio/                   MediaTts (WAV playback + amplitude), SttCapture, MicAnalyser, bands
   integration/
     tauriAdapter.ts        The voice seam: Tauri events -> signals -> controller; TTS/STT/Claude
-    telemetry.ts           The four live HUD panels (transcript / activity / session / waveform)
+    telemetry.ts           Transcript panel + session strip activity indicator
     signals.ts             Pure VoiceSignals -> deriveState
   mood/                    mood tag parser, color blend, MoodController
-  config/                  AvatarConfig + safe localStorage store
+  config/                  AvatarConfig, PaletteConfig, ThemeName, THEME_PALETTES, store
 demo/                      Host-free harness (the legacy Three.js reactor/head + all states)
 
 src-tauri/                 Rust backend
   src/tts.rs               Native Windows SAPI synth -> WAV buffer (no PowerShell)
   src/stt.rs               Mic frames -> webrtc-vad endpointing -> whisper-rs transcription
   src/claude.rs            The claude CLI stream-json sidecar + event parsing
+  src/terminal.rs          cmd.exe sessions (spawn/write/kill)
   tauri.conf.json          Window, strict CSP, NSIS bundle
 ```
 
@@ -164,11 +171,13 @@ entire voice loop drive it with no changes.
 
 ## Tests
 
-155 unit tests (state machine, mood parse/blend/controller, FFT bands, mic, MediaTts, the
-telemetry formatters and panels, the Thinking watchdog, the demo renderers and GLTF pipeline)
-plus Playwright e2e specs that boot the app and the demo, assert a live WebGL canvas, cycle all
-four states, and check the telemetry panels. Rust unit tests cover the stream-json parsing and
-the TTS/STT helpers. `npm audit` is clean.
+157 unit tests (state machine, mood parse/blend/controller, FFT bands, mic, MediaTts, the
+telemetry formatters and panels, the Thinking watchdog, palette sync, the demo renderers
+and GLTF pipeline) plus 16 Playwright e2e specs that boot the app and the demo with a mocked
+Tauri IPC layer, assert a live WebGL canvas, verify settings/theme switching, terminal panel
+lifecycle, Claude bridge connect and mood-stripped turn-end, and the session telemetry strip.
+Rust unit tests cover the stream-json parsing and the TTS/STT helpers. CI runs lint, typecheck,
+unit tests, Vite build, and e2e on every push. `npm audit` is clean.
 
 ## Tech stack
 
