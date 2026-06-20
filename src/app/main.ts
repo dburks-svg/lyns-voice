@@ -82,6 +82,38 @@ function bootstrap(): void {
     });
   });
 
+  // Phase 3: connect a Claude Code session in a project dir. Once connected,
+  // spoken utterances are sent to Claude and the reply is spoken back with mood.
+  const claudeDir = document.getElementById('claude-dir') as HTMLInputElement | null;
+  const claudeButton = document.getElementById('claude-btn');
+  claudeButton?.addEventListener('click', () => {
+    if (handle.isClaudeConnected()) {
+      handle.stopClaude();
+      claudeButton.textContent = 'connect claude';
+      claudeButton.classList.remove('active');
+      if (label) {
+        label.textContent = `Jarvis v${VERSION}`;
+      }
+      return;
+    }
+    const dir = claudeDir?.value.trim();
+    if (!dir) {
+      if (label) {
+        label.textContent = 'enter a project dir for Claude (it can act there by voice)';
+      }
+      return;
+    }
+    void handle.startClaude(dir).then((ok) => {
+      if (label) {
+        label.textContent = ok ? 'Claude connected' : 'claude start failed (see logs)';
+      }
+      if (ok) {
+        claudeButton.textContent = 'disconnect';
+        claudeButton.classList.add('active');
+      }
+    });
+  });
+
   if (label) {
     label.textContent = `Jarvis v${VERSION}`;
   }

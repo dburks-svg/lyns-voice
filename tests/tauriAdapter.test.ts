@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { toArrayBuffer, tauriTtsFetch, type InvokeFn } from '../src/integration/tauriAdapter';
+import {
+  toArrayBuffer,
+  tauriTtsFetch,
+  splitForSpeech,
+  type InvokeFn,
+} from '../src/integration/tauriAdapter';
 
 describe('toArrayBuffer', () => {
   it('returns an ArrayBuffer unchanged', () => {
@@ -72,5 +77,34 @@ describe('tauriTtsFetch', () => {
     await fetchImpl('/api/tts-wav', { method: 'POST', body: '{not json' });
 
     expect(seen).toEqual(['', '']);
+  });
+});
+
+describe('splitForSpeech', () => {
+  it('returns nothing for empty/whitespace input', () => {
+    expect(splitForSpeech('')).toEqual([]);
+    expect(splitForSpeech('   \n ')).toEqual([]);
+  });
+
+  it('keeps a short reply as a single chunk', () => {
+    expect(splitForSpeech('All systems nominal.')).toEqual(['All systems nominal.']);
+  });
+
+  it('splits on sentence boundaries', () => {
+    expect(splitForSpeech('Done. It compiled! Ship it?')).toEqual([
+      'Done.',
+      'It compiled!',
+      'Ship it?',
+    ]);
+  });
+
+  it('hard-wraps an over-long sentence under the cap, losing no words', () => {
+    const long = Array.from({ length: 50 }, (_, i) => `word${i}`).join(' '); // one "sentence"
+    const chunks = splitForSpeech(long, 40);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(c.length).toBeLessThanOrEqual(40);
+    }
+    expect(chunks.join(' ').split(/\s+/)).toEqual(long.split(' '));
   });
 });

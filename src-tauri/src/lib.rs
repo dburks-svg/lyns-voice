@@ -1,3 +1,4 @@
+mod claude;
 mod stt;
 mod tts;
 
@@ -15,12 +16,16 @@ pub fn run() {
       Ok(())
     })
     .manage(stt::SttState::default())
+    .manage(claude::ClaudeState::default())
     .invoke_handler(tauri::generate_handler![
       tts::tts_synthesize,
       stt::stt_start,
       stt::stt_stop,
       stt::stt_finalize,
-      stt::stt_push_frame
+      stt::stt_push_frame,
+      claude::claude_start,
+      claude::claude_submit,
+      claude::claude_stop
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

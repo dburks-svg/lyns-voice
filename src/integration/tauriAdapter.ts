@@ -115,6 +115,12 @@ export interface TauriHandle {
   stopListening(): void;
   /** Whether the mic is currently capturing. */
   isListening(): boolean;
+  /** Start the Claude Code sidecar in `dir` (defaults to home). Utterances route to it. */
+  startClaude(dir?: string): Promise<boolean>;
+  /** Stop the Claude sidecar; utterances revert to caption-only. */
+  stopClaude(): void;
+  /** Whether the Claude sidecar is connected. */
+  isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
   setState(state: AvatarState): void;
   dispose(): void;
@@ -153,7 +159,18 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   fit();
   view.addEventListener('resize', fit);
 
-  const sync = (): void => controller.setState(deriveState(signals));
+  const sync = (): void => {
+    // While a Claude response is pending (Thinking), suppress the Listening STATE
+    // even if the mic is still engaged, so the four-state loop is visible
+    // hands-free. The live amplitude still drives the reaction via setMicLevel.
+    const micActive = signals.micActive && !signals.pendingResponse;
+    controller.setState(deriveState({ ...signals, micActive }));
+  };
+
+  // Claude replies can exceed the TTS length cap, so a reply is spoken sentence by
+  // sentence from a queue: each chunk is a small WAV, and onSpeakingEnd pumps the
+  // next until the queue drains (then -> idle).
+  const speechQueue: string[] = [];
 
   const onSpeakingStart = (): void => {
     signals.speaking = true;
@@ -161,8 +178,12 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     sync();
   };
   const onSpeakingEnd = (): void => {
-    signals.speaking = false;
-    sync();
+    if (speechQueue.length > 0) {
+      pumpSpeech();
+    } else {
+      signals.speaking = false;
+      sync();
+    }
   };
   const onBoundary = (): void => controller.pulse();
 
@@ -181,6 +202,30 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const unlockAudio = (): void => mediaTts.unlock();
   view.document.addEventListener('pointerdown', unlockAudio, true);
 
+  // Speak the next queued chunk. No native-speechSynthesis fallback by design:
+  // this host's browser engine is silent (the whole reason SAPI exists), so a
+  // failed chunk is logged and skipped rather than retried elsewhere. Hoisted so
+  // onSpeakingEnd (declared above) can call it.
+  function pumpSpeech(): void {
+    if (mediaTts.isSpeaking) {
+      return;
+    }
+    const next = speechQueue.shift();
+    if (next === undefined) {
+      // Always sync on drain (even if every chunk failed and speaking was never
+      // set), so the avatar never stays stuck on the prior state.
+      signals.speaking = false;
+      sync();
+      return;
+    }
+    void mediaTts.speak(next).then((ok) => {
+      if (!ok) {
+        console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
+        pumpSpeech(); // skip the failed chunk; keep the reply moving
+      }
+    });
+  }
+
   const speak = async (text: string): Promise<boolean> => {
     // Mood is parsed and STRIPPED here, before the text is spoken or captioned,
     // so the `<<mood:...>>` marker is never heard or shown (the spec contract).
@@ -189,15 +234,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       mood.setMood(parsed.mood);
     }
     safeSetText(options.caption ?? null, parsed.stripped);
-    // No native-speechSynthesis fallback on a false result by design: this host's
-    // browser speech engine is silent (the very reason MediaTts/SAPI exists), so a
-    // fallback would be pointless. The caption stays readable; surface the failure
-    // for observability and let the caller react to the boolean.
-    const handled = await mediaTts.speak(parsed.stripped);
-    if (!handled) {
-      console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
+    const chunks = splitForSpeech(parsed.stripped);
+    if (chunks.length === 0) {
+      return true;
     }
-    return handled;
+    speechQueue.push(...chunks);
+    pumpSpeech();
+    return true;
   };
 
   // --- STT (Phase 2): local Whisper + VAD auto-send-on-pause ----------------
@@ -228,8 +271,27 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     if (!text) {
       return;
     }
-    safeSetText(options.caption ?? null, text);
-    options.onUtterance?.(text);
+    if (claudeConnected) {
+      // Turn-taking: ignore input while Claude is thinking or speaking (this also
+      // keeps the avatar from picking up its own TTS as a new request).
+      if (signals.pendingResponse || signals.speaking) {
+        return;
+      }
+      safeSetText(options.caption ?? null, text);
+      // Lock the turn synchronously NOW (before claude://thinking round-trips), so
+      // a back-to-back utterance is rejected by the guard above. Clear it if the
+      // submit IPC rejects, so a failed submit never wedges the UI in Thinking.
+      signals.pendingResponse = true;
+      sync();
+      void invoke('claude_submit', { text }).catch((e: unknown) => {
+        console.warn('[tauri-claude] submit', e);
+        signals.pendingResponse = false;
+        sync();
+      });
+    } else {
+      safeSetText(options.caption ?? null, text);
+      options.onUtterance?.(text);
+    }
   });
   addListener<{ state: string; downloaded: number; total: number }>('stt://model', (p) => {
     if (p.state === 'downloading') {
@@ -268,6 +330,64 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     sync();
   };
 
+  // --- Claude bridge (Phase 3): the full voice loop -------------------------
+  // onUtterance -> claude_submit -> Thinking -> spoken reply (with mood) -> idle.
+  let claudeConnected = false;
+
+  addListener<{ active: boolean }>('claude://thinking', (p) => {
+    signals.pendingResponse = p.active;
+    sync();
+  });
+  addListener<{ text: string; is_error: boolean }>('claude://turn-end', (p) => {
+    const text = (p.text ?? '').trim();
+    if (!text || p.is_error) {
+      // Nothing to speak: clear Thinking now; surface an error reply as a caption.
+      signals.pendingResponse = false;
+      if (text && p.is_error) {
+        safeSetText(options.caption ?? null, text);
+      }
+      sync();
+      return;
+    }
+    // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
+    // Speaking, so there is no idle flicker between Thinking and the spoken reply.
+    void speak(text); // parses mood, captions, and queues the reply
+  });
+  addListener<{ active: boolean; cwd: string }>('claude://ready', (p) => {
+    if (p.active) {
+      if (p.cwd) {
+        safeSetText(options.caption ?? null, `Claude connected: ${p.cwd}`);
+      }
+    } else {
+      // The child exited on its own: stop routing utterances to a dead session and
+      // recover the UI (otherwise the next utterance would wedge it in Thinking).
+      claudeConnected = false;
+      signals.pendingResponse = false;
+      sync();
+    }
+  });
+
+  const startClaude = async (dir?: string): Promise<boolean> => {
+    try {
+      await invoke('claude_start', dir ? { dir } : {});
+      claudeConnected = true;
+      return true;
+    } catch (e: unknown) {
+      console.warn('[tauri-claude] start', e);
+      claudeConnected = false;
+      return false;
+    }
+  };
+  const stopClaude = (): void => {
+    claudeConnected = false;
+    void invoke('claude_stop').catch(() => undefined);
+    speechQueue.length = 0; // drop any queued reply chunks
+    mediaTts.stop(); // cut current playback (fires onSpeakingEnd -> drains to idle)
+    signals.pendingResponse = false;
+    signals.speaking = false;
+    sync();
+  };
+
   return {
     avatar,
     controller,
@@ -275,9 +395,14 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     startListening,
     stopListening,
     isListening: () => capture.isActive,
+    startClaude,
+    stopClaude,
+    isClaudeConnected: () => claudeConnected,
     setState: (state) => controller.setState(state),
     dispose: () => {
       capture.stop();
+      void invoke('stt_stop').catch(() => undefined);
+      void invoke('claude_stop').catch(() => undefined);
       for (const un of unlisteners) {
         un();
       }
@@ -287,6 +412,40 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       avatar.dispose();
     },
   };
+}
+
+/**
+ * Split a reply into speakable chunks: sentence boundaries first, then hard-wrap
+ * any over-long sentence at a space, so each chunk stays under the Rust TTS length
+ * cap and each yields a small, quick WAV. Pure; unit-tested.
+ */
+export function splitForSpeech(text: string, maxLen = 4500): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const sentence of trimmed.split(/(?<=[.!?])\s+/)) {
+    if (sentence.length <= maxLen) {
+      if (sentence.trim()) {
+        out.push(sentence);
+      }
+      continue;
+    }
+    let rest = sentence;
+    while (rest.length > maxLen) {
+      let cut = rest.lastIndexOf(' ', maxLen);
+      if (cut <= 0) {
+        cut = maxLen;
+      }
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut).trimStart();
+    }
+    if (rest.trim()) {
+      out.push(rest);
+    }
+  }
+  return out;
 }
 
 /** Lazy default `invoke`; dynamic import keeps `@tauri-apps/api` out of the demo/test graph. */
