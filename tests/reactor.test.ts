@@ -19,13 +19,14 @@ function mockRendererFactory() {
 }
 
 describe('buildReactor', () => {
-  it('builds a group of 3 rings + 3 orbits + 1 core', () => {
+  it('builds a group of rings + orbits + core + a particle field', () => {
     const r = buildReactor({ radius: 1.2, colorA: 0x00f0ff, colorB: 0x0077ff });
     expect(r.group).toBeInstanceOf(THREE.Group);
     expect(r.rings).toHaveLength(3);
     expect(r.orbits).toHaveLength(3);
     expect(r.core).toBeInstanceOf(THREE.Mesh);
-    expect(r.group.children).toHaveLength(7);
+    expect(r.particles).toBeInstanceOf(THREE.Points);
+    expect(r.group.children).toHaveLength(8); // 3 rings + 3 orbits + core + particles
     r.dispose();
   });
 
@@ -78,6 +79,15 @@ describe('buildReactor', () => {
     r.dispose();
   });
 
+  it('update drives the audio-reactive uniforms from amplitude', () => {
+    const r = buildReactor({ radius: 1, colorA: 0, colorB: 0 });
+    r.update(0, { amplitude: 0.7, frequency: 1, speed: 1 }, 1.0, { reducedMotion: false });
+    expect(r.ringMaterial.uniforms.uAudio.value).toBeCloseTo(0.7);
+    expect(r.coreMaterial.uniforms.uAudio.value).toBeCloseTo(0.7);
+    expect(r.particleMaterial.uniforms.uAudio.value).toBeCloseTo(0.7);
+    r.dispose();
+  });
+
   it('reduced motion gentles the core pulse', () => {
     const r = buildReactor({ radius: 1, colorA: 0, colorB: 0 });
     r.update(0, { amplitude: 0.5, frequency: 2, speed: 2.5 }, 1.5, { reducedMotion: true });
@@ -87,15 +97,19 @@ describe('buildReactor', () => {
 
   it('dispose releases every geometry and material', () => {
     const r = buildReactor({ radius: 1, colorA: 0, colorB: 0 });
-    const geoSpies = [...r.rings, ...r.orbits, r.core].map((m) => vi.spyOn(m.geometry, 'dispose'));
+    const geoSpies = [...r.rings, ...r.orbits, r.core, r.particles].map((m) =>
+      vi.spyOn(m.geometry, 'dispose'),
+    );
     const ringMat = vi.spyOn(r.ringMaterial, 'dispose');
     const coreMat = vi.spyOn(r.coreMaterial, 'dispose');
+    const partMat = vi.spyOn(r.particleMaterial, 'dispose');
     r.dispose();
     for (const spy of geoSpies) {
       expect(spy).toHaveBeenCalledTimes(1);
     }
     expect(ringMat).toHaveBeenCalledTimes(1);
     expect(coreMat).toHaveBeenCalledTimes(1);
+    expect(partMat).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -13,6 +13,8 @@ import * as THREE from 'three';
 import type { DeformationParams } from './deformation';
 import {
   AVATAR_VERTEX_SHADER,
+  PARTICLE_FRAGMENT_SHADER,
+  PARTICLE_VERTEX_SHADER,
   REACTOR_CORE_FRAGMENT_SHADER,
   REACTOR_FRAGMENT_SHADER,
 } from './shaders';
@@ -35,8 +37,10 @@ export interface ReactorHandle {
   readonly rings: THREE.Mesh[];
   readonly orbits: THREE.Mesh[];
   readonly core: THREE.Mesh;
+  readonly particles: THREE.Points;
   readonly ringMaterial: THREE.ShaderMaterial;
   readonly coreMaterial: THREE.ShaderMaterial;
+  readonly particleMaterial: THREE.ShaderMaterial;
   setColors(rim: number, core: number): void;
   setGlow(value: number): void;
   update(time: number, params: DeformationParams, glow: number, opts: ReactorUpdateOptions): void;
@@ -58,6 +62,10 @@ const ORBITS: ReadonlyArray<{ tilt: readonly [number, number, number]; squash: n
 const ORBIT_RADIUS = 1.05;
 const ORBIT_TUBE = 0.02;
 const CORE_RADIUS = 0.22;
+// Rotating particle "dust" field: count and the sphere-shell radii (* radius).
+const PARTICLE_COUNT = 1500;
+const PARTICLE_INNER = 1.6;
+const PARTICLE_OUTER = 3.4;
 // Gentle the motion (not freeze) when the user prefers reduced motion.
 const REDUCED_MOTION_FACTOR = 0.15;
 
@@ -72,6 +80,7 @@ export function buildReactor(opts: ReactorOptions): ReactorHandle {
         uColorB: { value: new THREE.Color(opts.colorB) },
         uGlow: { value: 1.0 },
         uOpacity: { value: 0.9 },
+        uAudio: { value: 0 },
       },
       vertexShader: AVATAR_VERTEX_SHADER,
       fragmentShader,
@@ -104,16 +113,50 @@ export function buildReactor(opts: ReactorOptions): ReactorHandle {
   const core = new THREE.Mesh(new THREE.IcosahedronGeometry(CORE_RADIUS * radius, 1), coreMaterial);
   group.add(core);
 
+  // Rotating particle "dust" field on a sphere shell around the reactor.
+  const positions = new Float32Array(PARTICLE_COUNT * 3);
+  const sizes = new Float32Array(PARTICLE_COUNT);
+  for (let i = 0; i < PARTICLE_COUNT; i += 1) {
+    const u = Math.random() * 2 - 1; // even sphere-shell distribution
+    const theta = Math.random() * Math.PI * 2;
+    const s = Math.sqrt(1 - u * u);
+    const rr = (PARTICLE_INNER + Math.random() * (PARTICLE_OUTER - PARTICLE_INNER)) * radius;
+    positions[i * 3] = Math.cos(theta) * s * rr;
+    positions[i * 3 + 1] = u * rr;
+    positions[i * 3 + 2] = Math.sin(theta) * s * rr;
+    sizes[i] = 0.04 + Math.random() * 0.1; // small base; perspective-scaled in the shader
+  }
+  const particleGeometry = new THREE.BufferGeometry();
+  particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  particleGeometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  const particleMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uAudio: { value: 0 },
+      uColor: { value: new THREE.Color(opts.colorA) },
+      uGlow: { value: 1.0 },
+    },
+    vertexShader: PARTICLE_VERTEX_SHADER,
+    fragmentShader: PARTICLE_FRAGMENT_SHADER,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const particles = new THREE.Points(particleGeometry, particleMaterial);
+  group.add(particles);
+
   const setColors = (rim: number, coreColor: number): void => {
     (ringMaterial.uniforms.uColorA.value as THREE.Color).set(rim);
     (ringMaterial.uniforms.uColorB.value as THREE.Color).set(coreColor);
     (coreMaterial.uniforms.uColorA.value as THREE.Color).set(rim);
     (coreMaterial.uniforms.uColorB.value as THREE.Color).set(coreColor);
+    (particleMaterial.uniforms.uColor.value as THREE.Color).set(rim);
   };
 
   const setGlow = (value: number): void => {
     ringMaterial.uniforms.uGlow.value = value;
     coreMaterial.uniforms.uGlow.value = value;
+    particleMaterial.uniforms.uGlow.value = value;
   };
 
   let started = false;
@@ -148,9 +191,21 @@ export function buildReactor(opts: ReactorOptions): ReactorHandle {
     const pulse = 1 + amplitude * 0.8 * calm + 0.04 * calm * Math.sin(time * speed * Math.PI);
     core.scale.setScalar(pulse);
 
+    // Audio reactivity: the voice level (amplitude) sharpens the ring/core fresnel
+    // and brightens the dust (the Filip Zrnzevic orb's audio-reactive look).
+    const audio = Math.max(0, Math.min(1, amplitude));
+    ringMaterial.uniforms.uAudio.value = audio;
+    coreMaterial.uniforms.uAudio.value = audio;
+    particleMaterial.uniforms.uAudio.value = audio;
+
+    // The dust field drifts (uTime) and slowly rotates around the reactor.
+    particleMaterial.uniforms.uTime.value = time;
+    particles.rotation.y += dt * 0.06 * calm;
+
     // Emissive follows the controller glow; the core runs a touch hotter.
     ringMaterial.uniforms.uGlow.value = glow;
     coreMaterial.uniforms.uGlow.value = glow * 1.15;
+    particleMaterial.uniforms.uGlow.value = glow * 0.6;
   };
 
   const dispose = (): void => {
@@ -161,8 +216,10 @@ export function buildReactor(opts: ReactorOptions): ReactorHandle {
       mesh.geometry.dispose();
     }
     core.geometry.dispose();
+    particleGeometry.dispose();
     ringMaterial.dispose();
     coreMaterial.dispose();
+    particleMaterial.dispose();
   };
 
   return {
@@ -170,8 +227,10 @@ export function buildReactor(opts: ReactorOptions): ReactorHandle {
     rings,
     orbits,
     core,
+    particles,
     ringMaterial,
     coreMaterial,
+    particleMaterial,
     setColors,
     setGlow,
     update,

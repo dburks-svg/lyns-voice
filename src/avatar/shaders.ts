@@ -102,16 +102,19 @@ export const REACTOR_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColorB; // deep core
   uniform float uGlow;  // emissive intensity, driven by avatar state
   uniform float uOpacity;
+  uniform float uAudio; // 0..~1 voice/activity level
 
   varying vec3 vNormal;
   varying vec3 vView;
 
   void main() {
-    float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vView)), 0.0), 1.6);
+    // Audio-reactive fresnel exponent (borrowed from the Filip Zrnzevic orb): the
+    // rim sharpens and "heats" with the voice level, so the rings flare on speech.
+    float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vView)), 0.0), 1.6 + uAudio * 2.0);
     // Bias toward the rim color even head-on so the whole ring glows, brightest
     // at grazing angles.
     vec3 color = mix(uColorB, uColorA, 0.35 + 0.65 * fresnel);
-    gl_FragColor = vec4(color * uGlow, uOpacity);
+    gl_FragColor = vec4(color * uGlow * (1.0 + uAudio * 0.6), uOpacity);
   }
 `;
 
@@ -128,6 +131,7 @@ export const REACTOR_CORE_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColorB; // (carried for the setColors contract; unused here)
   uniform float uGlow;  // emissive intensity, driven by avatar state
   uniform float uOpacity;
+  uniform float uAudio; // 0..~1 voice/activity level: burns hotter on the beat
 
   varying vec3 vNormal;
   varying vec3 vView;
@@ -135,7 +139,48 @@ export const REACTOR_CORE_FRAGMENT_SHADER = /* glsl */ `
   void main() {
     float facing = max(dot(normalize(vNormal), normalize(vView)), 0.0);
     float hot = pow(facing, 1.5);
-    vec3 color = mix(uColorA, vec3(1.0), 0.5 * hot);
-    gl_FragColor = vec4(color * uGlow * 1.8, 1.0);
+    vec3 color = mix(uColorA, vec3(1.0), (0.5 + uAudio * 0.4) * hot);
+    gl_FragColor = vec4(color * uGlow * (1.8 + uAudio * 0.8), 1.0);
+  }
+`;
+
+/**
+ * Particle-field point shaders (the rotating "dust" around the reactor), adapted
+ * from the openclaw / Filip Zrnzevic orb visualizer: each point gently sin/cos
+ * drifts, is perspective-sized, brightens with the voice level, and renders as a
+ * soft round additive glow. One shared color (the rim) keeps it cohesive.
+ */
+export const PARTICLE_VERTEX_SHADER = /* glsl */ `
+  attribute float aSize;
+  uniform float uTime;
+  uniform float uAudio;
+
+  void main() {
+    vec3 pos = position;
+    pos.x += sin(uTime * 0.2 + position.z * 0.5) * 0.06;
+    pos.y += cos(uTime * 0.2 + position.x * 0.5) * 0.06;
+    pos.z += sin(uTime * 0.2 + position.y * 0.5) * 0.06;
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    // The field sits close to the camera, so a modest perspective scale keeps the
+    // points as small discrete sparkles (not a fog).
+    gl_PointSize = aSize * (1.0 + uAudio * 1.2) * (140.0 / -mvPosition.z);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+export const PARTICLE_FRAGMENT_SHADER = /* glsl */ `
+  precision highp float;
+
+  uniform vec3 uColor;
+  uniform float uGlow;
+  uniform float uAudio;
+
+  void main() {
+    float r = distance(gl_PointCoord, vec2(0.5));
+    if (r > 0.5) {
+      discard;
+    }
+    float glow = pow(1.0 - r * 2.0, 2.0); // soft round falloff
+    gl_FragColor = vec4(uColor * uGlow * glow * (0.35 + uAudio * 0.5), 1.0);
   }
 `;
