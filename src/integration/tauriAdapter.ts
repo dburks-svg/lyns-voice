@@ -28,6 +28,7 @@ import { parseMoodMarker } from '../mood/moodProtocol';
 import { THEME_PALETTES, type ThemeName } from '../config/config';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { deriveState, type VoiceSignals } from './signals';
+import { createConductorVoice } from './conductorVoice';
 
 /** Args accepted by `invoke`: a JSON record, or a raw binary body (audio frames). */
 type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
@@ -287,6 +288,9 @@ export interface TauriHandle {
   /** Interrupt an in-flight turn (barge-in): stop speaking or cancel thinking. Returns
    *  whether anything was interrupted (so Escape can fall through to closing a panel). */
   interrupt(): boolean;
+  /** Announce a worker session's finished turn through the conductor voice (error =>
+   *  critical interrupt at the next pause; success => batched digest). */
+  announce(name: string, isError: boolean): void;
   /** Whether the Claude sidecar is connected. */
   isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
@@ -408,6 +412,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     } else {
       signals.speaking = false;
       sync();
+      conductorVoice.flush(); // the now-free voice can speak a worker announcement
     }
   };
   const onBoundary = (): void => controller.pulse();
@@ -477,6 +482,17 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     pumpSpeech();
     return true;
   };
+
+  // The conductor's single voice across the fleet: a worker session's finished turn is
+  // announced here, courteously, only when the voice channel is free (a critical error
+  // at the next pause; successes batched into a digest). All via the existing speak().
+  const voiceFree = (): boolean =>
+    !signals.speaking && !signals.pendingResponse && !mediaTts.isSpeaking && speechQueue.length === 0;
+  const conductorVoice = createConductorVoice({
+    speak: (t) => void speak(t),
+    voiceFree,
+    timer: view,
+  });
 
   // --- STT (Phase 2): local Whisper + VAD auto-send-on-pause ----------------
   const listen = options.listen ?? defaultListen;
@@ -807,6 +823,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       if (t && claudeConnected) submitToClaude(t);
     },
     interrupt,
+    announce: (name, isError) => conductorVoice.announce(name, isError),
     isClaudeConnected: () => claudeConnected,
     cancelReconnect,
     setState: (state) => controller.setState(state),

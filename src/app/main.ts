@@ -468,11 +468,14 @@ async function bootstrap(): Promise<void> {
       effort: settings.effort || undefined,
     }),
     onDone: (name, isError) => {
-      void import('@tauri-apps/plugin-notification')
-        .then(({ sendNotification }) => {
-          sendNotification({ title: 'Q', body: `${name} ${isError ? 'hit an error' : 'finished'}.` });
-        })
-        .catch(() => undefined);
+      handle.announce(name, isError); // courteous spoken announcement via the conductor
+      if (document.hidden) {
+        void import('@tauri-apps/plugin-notification')
+          .then(({ sendNotification }) => {
+            sendNotification({ title: 'Q', body: `${name} ${isError ? 'hit an error' : 'finished'}.` });
+          })
+          .catch(() => undefined);
+      }
     },
   });
 
