@@ -12,6 +12,7 @@ import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
 import { showOnboarding } from './onboarding';
 import { showProposeCard } from './proposeCard';
+import { createFleetMeter } from '../integration/fleetMeter';
 
 /**
  * Q desktop app entry.
@@ -55,6 +56,10 @@ async function bootstrap(): Promise<void> {
 
   const settings = loadSettings();
 
+  const fleetMeter = createFleetMeter(
+    document.getElementById('hud-fleet'),
+    document.getElementById('hud-fleet-cost'),
+  );
   const handle = attachTauri({
     root,
     initialTheme: (settings.theme as ThemeName) || undefined,
@@ -85,7 +90,10 @@ async function bootstrap(): Promise<void> {
       newString: d.new_string,
       content: d.content,
     }),
-    onUsage: (u) => panels.addUsage(u),
+    onUsage: (u) => {
+      panels.addUsage(u);
+      fleetMeter.addCost(u.cost_usd);
+    },
     onBands: (bands) => panels.pushBands(bands),
     ttsSettings: () => ({
       rate: settings.ttsRate,
@@ -491,6 +499,8 @@ async function bootstrap(): Promise<void> {
           .catch(() => undefined);
       }
     },
+    onUsage: (u) => fleetMeter.addCost(u.cost_usd),
+    onCountChange: (n) => fleetMeter.setActive(1 + n),
   });
 
   // Make telemetry panels draggable and resizable. Restore saved positions

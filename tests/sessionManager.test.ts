@@ -5,6 +5,8 @@ function setup(dir = 'C:/proj') {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   const handlers: Record<string, (p: unknown) => void> = {};
   const onDone = vi.fn();
+  const onUsage = vi.fn();
+  const onCountChange = vi.fn();
   const layer = document.createElement('div');
   document.body.appendChild(layer);
 
@@ -22,8 +24,10 @@ function setup(dir = 'C:/proj') {
     layer,
     defaults: () => ({ dir, model: 'opus', effort: 'high' }),
     onDone,
+    onUsage,
+    onCountChange,
   };
-  return { mgr: new SessionManager(deps), calls, handlers, onDone, layer };
+  return { mgr: new SessionManager(deps), calls, handlers, onDone, onUsage, onCountChange, layer };
 }
 
 describe('SessionManager (background multi-session)', () => {
@@ -88,6 +92,16 @@ describe('SessionManager (background multi-session)', () => {
     await mgr.spawn({ name: 'backend', dir: 'C:/api', task: 'serve' });
     expect(mgr.tell('frontend', 'hi')).toBe(false);
     mgr.closeAll();
+  });
+
+  it('forwards worker usage and count changes for the fleet meter', async () => {
+    const { mgr, handlers, onUsage, onCountChange } = setup();
+    await mgr.spawn();
+    expect(onCountChange).toHaveBeenLastCalledWith(1);
+    handlers['claude://claude-9/usage']({ cost_usd: 0.42 });
+    expect(onUsage).toHaveBeenCalledWith({ cost_usd: 0.42 });
+    mgr.close('claude-9');
+    expect(onCountChange).toHaveBeenLastCalledWith(0);
   });
 
   it('close stops the session by id and tears down its panel', async () => {

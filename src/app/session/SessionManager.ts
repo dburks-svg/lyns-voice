@@ -22,6 +22,10 @@ export interface SessionManagerDeps {
   defaults: () => { dir?: string; model?: string; effort?: string };
   /** Courteous notice when a background session finishes a turn. */
   onDone?: (name: string, isError: boolean) => void;
+  /** Forward each worker session's per-turn usage (cost) for the fleet meter. */
+  onUsage?: (usage: { cost_usd: number }) => void;
+  /** Live worker count changed (spawn/close), for the fleet meter. */
+  onCountChange?: (count: number) => void;
 }
 
 interface ManagedSession {
@@ -102,8 +106,10 @@ export class SessionManager {
       if (text) panel.addLine(p.is_error ? 'output' : 'narration', text);
       this.deps.onDone?.(name, p.is_error);
     });
+    wire<{ cost_usd: number }>('usage', (p) => this.deps.onUsage?.(p));
 
     this.sessions.set(id, { id, panel, unlisteners, name });
+    this.deps.onCountChange?.(this.sessions.size);
 
     // The conductor can hand a worker its opening task at spawn (claude_start resolves only
     // once the child's stdin is ready, so this submit lands).
@@ -133,6 +139,7 @@ export class SessionManager {
     for (const un of s.unlisteners) un();
     s.panel.destroy();
     this.sessions.delete(id);
+    this.deps.onCountChange?.(this.sessions.size);
     void this.deps.invoke('claude_stop', { id }).catch(() => undefined);
   }
 
