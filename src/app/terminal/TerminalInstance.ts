@@ -1,10 +1,9 @@
 /**
- * Wraps a single xterm.js Terminal wired to a Tauri-spawned shell session.
- *
- * Without a PTY the shell has no prompt and no echo, so this class provides
- * local echo, line buffering, and a synthetic prompt. Keystrokes are collected
- * locally; on Enter the complete line is sent to the Rust backend which pipes
- * it to cmd.exe. Output comes back via Tauri events.
+ * Wraps a single xterm.js Terminal wired to a REAL ConPTY shell (the user's
+ * escape-hatch terminal). Raw mode: keystrokes go straight to the PTY via
+ * `terminal_write`, the shell echoes them and renders its own prompt + ANSI, and
+ * output bytes arrive on `terminal://{id}/output`. Resizes are forwarded to the
+ * PTY (`terminal_resize`) so the shell reflows. No faked prompt or local echo.
  */
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -21,30 +20,23 @@ interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 }
 
-const PROMPT = '\x1b[36m>\x1b[0m ';
-
 export class TerminalInstance {
   readonly term: Terminal;
   private fitAddon: FitAddon;
   private unlisteners: UnlistenFn[] = [];
   private resizeObserver: ResizeObserver | null = null;
   private destroyed = false;
-  private lineBuffer = '';
-  private promptWritten = false;
-  private promptTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     readonly id: string,
     container: HTMLElement,
     private tauri: TauriApi,
-    cwd?: string,
   ) {
     this.term = new Terminal({
       fontFamily: '"Cascadia Code", "Cascadia Mono", Consolas, monospace',
       fontSize: 13,
-      lineHeight: 1.3,
+      lineHeight: 1.2,
       cursorBlink: true,
-      cursorStyle: 'bar',
       theme: {
         background: '#05070b',
         foreground: '#aee7ff',
@@ -75,89 +67,45 @@ export class TerminalInstance {
     this.term.open(container);
 
     requestAnimationFrame(() => {
-      if (!this.destroyed) this.fitAddon.fit();
+      if (this.destroyed) return;
+      this.fitAddon.fit();
+      this.sendResize();
     });
 
-    this.term.write(`\x1b[90m[${cwd ?? 'shell'}]\x1b[0m\r\n`);
-    this.writePrompt();
+    // Raw keystrokes straight to the PTY; the shell echoes them back as output.
+    this.term.onData((data: string) => {
+      void this.tauri.invoke('terminal_write', { id: this.id, data }).catch(() => undefined);
+    });
 
-    this.term.onData((data: string) => this.handleInput(data));
-
-    this.wireEvents();
+    void this.wireEvents();
 
     this.resizeObserver = new ResizeObserver(() => {
-      if (!this.destroyed) this.fitAddon.fit();
+      if (this.destroyed) return;
+      this.fitAddon.fit();
+      this.sendResize();
     });
     this.resizeObserver.observe(container);
   }
 
-  private handleInput(data: string): void {
-    for (const ch of data) {
-      if (ch === '\r') {
-        this.term.write('\r\n');
-        const line = this.lineBuffer;
-        this.lineBuffer = '';
-        this.promptWritten = false;
-        if (line.length > 0) {
-          this.tauri
-            .invoke('terminal_write', { id: this.id, data: line + '\r\n' })
-            .catch(() => {
-              this.term.write('\x1b[31m[send failed]\x1b[0m\r\n');
-              this.writePrompt();
-            });
-        } else {
-          this.writePrompt();
-        }
-      } else if (ch === '\x7f' || ch === '\b') {
-        if (this.lineBuffer.length > 0) {
-          this.lineBuffer = this.lineBuffer.slice(0, -1);
-          this.term.write('\b \b');
-        }
-      } else if (ch === '\x03') {
-        this.lineBuffer = '';
-        this.term.write('^C\r\n');
-        this.writePrompt();
-      } else if (ch >= ' ') {
-        this.lineBuffer += ch;
-        this.term.write(ch);
-      }
-    }
-  }
-
-  private writePrompt(): void {
-    if (!this.promptWritten) {
-      this.term.write(PROMPT);
-      this.promptWritten = true;
-    }
-  }
-
-  private schedulePrompt(): void {
-    if (this.promptTimer) clearTimeout(this.promptTimer);
-    this.promptTimer = setTimeout(() => {
-      this.promptWritten = false;
-      this.writePrompt();
-    }, 150);
+  private sendResize(): void {
+    void this.tauri
+      .invoke('terminal_resize', { id: this.id, cols: this.term.cols, rows: this.term.rows })
+      .catch(() => undefined);
   }
 
   private async wireEvents(): Promise<void> {
     const onOutput = await this.tauri.listen(
       `terminal://${this.id}/output`,
       (e: TauriEvent<unknown>) => {
-        const payload = e.payload as { data?: string };
-        if (payload.data != null) {
-          this.term.write(payload.data + '\r\n');
-        }
-        this.schedulePrompt();
+        const payload = e.payload as { data?: number[] };
+        if (payload.data) this.term.write(new Uint8Array(payload.data));
       },
     );
     this.unlisteners.push(onOutput);
 
-    const onExit = await this.tauri.listen(
-      `terminal://${this.id}/exit`,
-      () => {
-        this.term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n');
-      },
-    );
+    const onExit = await this.tauri.listen(`terminal://${this.id}/exit`, () => {
+      this.term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n');
+    });
     this.unlisteners.push(onExit);
   }
 

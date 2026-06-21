@@ -36,6 +36,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.10"
 # Claude Code sidecar: async child process + stream-json over stdin/stdout.
 tokio = { version = "1", features = ["process", "io-util", "sync"] }
+# Real interactive terminal (Windows ConPTY) for the user-owned escape-hatch shell.
+portable-pty = "0.8"
 
 # Native SAPI text-to-speech (in-process; no powershell.exe child). 0.61.x is the
 # version Tauri already resolves, so this adds features to a crate already in the

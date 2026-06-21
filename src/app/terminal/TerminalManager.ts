@@ -62,7 +62,7 @@ export class TerminalManager {
 
       const title = cwd ? shortenPath(cwd) : 'shell';
       const bodyEl = entry.panel.addTab(id, title);
-      const instance = new TerminalInstance(id, bodyEl, this.tauri, cwd);
+      const instance = new TerminalInstance(id, bodyEl, this.tauri);
       entry.instances.set(id, instance);
       this.termToPanel.set(id, panelId!);
 

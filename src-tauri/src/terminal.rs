@@ -1,177 +1,178 @@
-//! Spawnable terminal sessions: each one a PowerShell child with piped I/O.
+//! Spawnable terminal sessions: each one a REAL interactive shell on a Windows
+//! pseudo-console (ConPTY, via `portable-pty`). This is the user's escape-hatch
+//! shell - for the things Claude can't or shouldn't do (sudo, REPLs, interactive
+//! tools, poking around) - driven only by the human and kept separate from Claude's
+//! sessions.
 //!
-//! The frontend creates terminals via `terminal_spawn`, writes keystrokes via
-//! `terminal_write`, and receives output through `terminal://{id}/output` events.
-//! Process exit emits `terminal://{id}/exit`. A generation counter per session
-//! prevents a killed reader from emitting onto a recycled ID.
+//! The frontend creates terminals via `terminal_spawn`, writes raw keystrokes via
+//! `terminal_write`, resizes via `terminal_resize`, and receives RAW output bytes
+//! through `terminal://{id}/output` events (xterm.js renders them, with real echo
+//! and ANSI from the shell itself - no faked prompt). Process exit emits
+//! `terminal://{id}/exit`. A per-session generation prevents a dead reader from
+//! emitting onto a recycled id.
 
 use std::collections::HashMap;
-use std::process::Stdio;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::Mutex as AsyncMutex;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 struct TerminalSession {
-    stdin: ChildStdin,
-    _child: Child,
+    writer: Box<dyn Write + Send>,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
     generation: u64,
 }
 
 #[derive(Default)]
 pub struct TerminalState {
-    sessions: AsyncMutex<HashMap<String, TerminalSession>>,
+    // A std Mutex (not async): every op is a quick blocking PTY call, and the std
+    // reader thread needs to check liveness without a tokio runtime.
+    sessions: Mutex<HashMap<String, TerminalSession>>,
 }
 
 #[derive(Clone, Serialize)]
 struct TermOutput {
     id: String,
-    data: String,
+    data: Vec<u8>,
 }
 
 #[derive(Clone, Serialize)]
 struct TermExit {
     id: String,
-    code: Option<i32>,
-}
-
-fn spawn_shell(cwd: &str) -> Result<Child, String> {
-    let mut c = Command::new("cmd.exe");
-    c.args(["/Q"]); // /Q disables cmd's own echo; we handle echo on the frontend
-    c.current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    c.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    c.spawn().map_err(|e| format!("spawn cmd: {e}"))
 }
 
 #[tauri::command]
-pub async fn terminal_spawn(app: AppHandle, cwd: Option<String>) -> Result<String, String> {
-    let dir = cwd.unwrap_or_else(|| {
-        std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".into())
-    });
+pub async fn terminal_spawn(
+    app: AppHandle,
+    cwd: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> Result<String, String> {
+    let dir = cwd.unwrap_or_else(|| std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\".into()));
     if !std::path::Path::new(&dir).is_dir() {
         return Err(format!("not a directory: {dir}"));
     }
 
+    let size = PtySize {
+        rows: rows.unwrap_or(24),
+        cols: cols.unwrap_or(80),
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+    let pair = native_pty_system()
+        .openpty(size)
+        .map_err(|e| format!("openpty: {e}"))?;
+
+    let mut cmd = CommandBuilder::new("powershell.exe");
+    cmd.cwd(&dir);
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn shell: {e}"))?;
+    drop(pair.slave); // the child holds the slave; we only keep the master
+
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("pty reader: {e}"))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("pty writer: {e}"))?;
+
     let id = format!("term-{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-    let mut child = spawn_shell(&dir)?;
-
-    let stdin = child.stdin.take().ok_or("terminal stdin unavailable")?;
-    let stdout = child.stdout.take().ok_or("terminal stdout unavailable")?;
-    let stderr = child.stderr.take();
-
     let generation = 1u64;
-
     {
         let state = app.state::<TerminalState>();
-        state.sessions.lock().await.insert(
+        let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+        sessions.insert(
             id.clone(),
-            TerminalSession {
-                stdin,
-                _child: child,
-                generation,
-            },
+            TerminalSession { writer, master: pair.master, child, generation },
         );
     }
 
-    let id2 = id.clone();
-
-    // stdout reader
+    // Reader thread: stream raw PTY output to the webview (xterm renders the bytes).
     let app2 = app.clone();
-    let id3 = id.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if !is_session_alive(&app2, &id3, generation).await {
-                return;
+    let id2 = id.clone();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break, // EOF: the shell exited
+                Ok(n) => {
+                    if !is_session_alive(&app2, &id2, generation) {
+                        return; // superseded/killed: stay silent
+                    }
+                    let _ = app2.emit(
+                        &format!("terminal://{}/output", id2),
+                        TermOutput { id: id2.clone(), data: buf[..n].to_vec() },
+                    );
+                }
+                Err(_) => break,
             }
-            let _ = app2.emit(
-                &format!("terminal://{}/output", id3),
-                TermOutput { id: id3.clone(), data: line },
-            );
         }
-        if is_session_alive(&app2, &id3, generation).await {
-            let _ = app2.emit(
-                &format!("terminal://{}/exit", id3),
-                TermExit { id: id3.clone(), code: None },
-            );
-            app2.state::<TerminalState>().sessions.lock().await.remove(&id3);
+        if is_session_alive(&app2, &id2, generation) {
+            let _ = app2.emit(&format!("terminal://{}/exit", id2), TermExit { id: id2.clone() });
+            let state = app2.state::<TerminalState>();
+            let guard = state.sessions.lock();
+            if let Ok(mut sessions) = guard {
+                sessions.remove(&id2);
+            }
         }
     });
 
-    // stderr reader (merge into same output stream)
-    if let Some(stderr) = stderr {
-        let app3 = app.clone();
-        let id4 = id.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if !is_session_alive(&app3, &id4, generation).await {
-                    return;
-                }
-                let _ = app3.emit(
-                    &format!("terminal://{}/output", id4),
-                    TermOutput { id: id4.clone(), data: line },
-                );
-            }
-        });
-    }
-
-    Ok(id2)
+    Ok(id)
 }
 
 #[tauri::command]
 pub async fn terminal_write(app: AppHandle, id: String, data: String) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    let mut sessions = state.sessions.lock().await;
+    let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
     let session = sessions.get_mut(&id).ok_or("terminal session not found")?;
     session
-        .stdin
+        .writer
         .write_all(data.as_bytes())
-        .await
         .map_err(|e| format!("terminal write: {e}"))?;
-    session
-        .stdin
-        .flush()
-        .await
-        .map_err(|e| format!("terminal flush: {e}"))?;
+    session.writer.flush().map_err(|e| format!("terminal flush: {e}"))?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn terminal_kill(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    let mut sessions = state.sessions.lock().await;
+    let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
     if let Some(mut session) = sessions.remove(&id) {
-        session.generation = 0; // invalidate readers
-        let _ = session.stdin.shutdown().await;
-        let _ = session._child.start_kill();
+        session.generation = 0; // invalidate the reader
+        let _ = session.child.kill();
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn terminal_resize(
-    _app: AppHandle,
-    _id: String,
-    _cols: u16,
-    _rows: u16,
-) -> Result<(), String> {
-    // No-op for now; full PTY/conpty support will enable real resize.
+pub async fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let state = app.state::<TerminalState>();
+    let sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+    if let Some(session) = sessions.get(&id) {
+        session
+            .master
+            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("terminal resize: {e}"))?;
+    }
     Ok(())
 }
 
-async fn is_session_alive(app: &AppHandle, id: &str, gen: u64) -> bool {
+fn is_session_alive(app: &AppHandle, id: &str, gen: u64) -> bool {
     let state = app.state::<TerminalState>();
-    let sessions = state.sessions.lock().await;
-    sessions.get(id).is_some_and(|s| s.generation == gen)
+    let guard = state.sessions.lock();
+    match guard {
+        Ok(sessions) => sessions.get(id).is_some_and(|s| s.generation == gen),
+        Err(_) => false,
+    }
 }
