@@ -335,6 +335,8 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // sentence from a queue: each chunk is a small WAV, and onSpeakingEnd pumps the
   // next until the queue drains (then -> idle).
   const speechQueue: string[] = [];
+  // Fire the "voice unavailable" notice at most once per reply (not once per chunk).
+  let ttsNoticeFired = false;
 
   const onSpeakingStart = (): void => {
     signals.speaking = true;
@@ -385,6 +387,14 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     void mediaTts.speak(next).then((ok) => {
       if (!ok) {
         console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
+        if (!ttsNoticeFired) {
+          ttsNoticeFired = true;
+          // Surface it once per reply (toast) so a silent failure is not console-only;
+          // the reply text is already in the caption.
+          void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
+            sendNotification({ title: 'Q', body: 'Voice output unavailable; the reply is shown as text.' });
+          }).catch(() => undefined);
+        }
         pumpSpeech(); // skip the failed chunk; keep the reply moving
       }
     });
@@ -403,6 +413,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     if (chunks.length === 0) {
       return true;
     }
+    ttsNoticeFired = false; // re-arm the at-most-once voice-unavailable notice per reply
     speechQueue.push(...chunks);
     pumpSpeech();
     return true;

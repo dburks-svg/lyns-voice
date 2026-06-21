@@ -11,7 +11,13 @@ pub async fn ci_status() -> Result<CiStatus, String> {
     let output = Command::new("gh")
         .args(["run", "list", "--limit", "1", "--json", "status,conclusion"])
         .output()
-        .map_err(|e| format!("failed to run gh: {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "gh CLI not found on PATH (install GitHub CLI to see CI status)".to_string()
+            } else {
+                format!("failed to run gh: {e}")
+            }
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

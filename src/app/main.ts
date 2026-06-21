@@ -294,16 +294,24 @@ async function bootstrap(): Promise<void> {
     const tauri = tauriGlobal as {
       invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     };
+    const dots = [ciGreen, ciYellow, ciRed];
+    const setCiTitle = (msg: string): void => {
+      for (const dot of dots) dot.title = msg;
+    };
     const pollCi = (): void => {
       void tauri.invoke('ci_status').then((result) => {
         const { state } = result as { state: string };
         ciGreen.classList.toggle('active', state === 'green');
         ciYellow.classList.toggle('active', state === 'yellow');
         ciRed.classList.toggle('active', state === 'red');
-      }).catch(() => {
+        setCiTitle(state === 'unknown' ? 'CI: no recent runs found' : `CI: ${state}`);
+      }).catch((e: unknown) => {
+        // Surface why the dots went dark instead of failing silently: a missing or
+        // unauthenticated gh is the common cause, shown as a hover tooltip.
         ciGreen.classList.remove('active');
         ciYellow.classList.remove('active');
         ciRed.classList.remove('active');
+        setCiTitle(`CI status unavailable: ${String(e)}`);
       });
     };
     pollCi();
