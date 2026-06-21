@@ -4,7 +4,10 @@ import {
   tauriTtsFetch,
   splitForSpeech,
   createWatchdog,
+  attachTauri,
   type InvokeFn,
+  type ListenFn,
+  type AvatarLike,
 } from '../src/integration/tauriAdapter';
 
 describe('toArrayBuffer', () => {
@@ -168,5 +171,130 @@ describe('createWatchdog', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('fires the progress tick repeatedly while armed, then stops on clear', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const onTick = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout, {
+        everyMs: 300,
+        onTick,
+      });
+      wd.arm();
+      vi.advanceTimersByTime(900); // ticks at 300/600/900
+      expect(onTick).toHaveBeenCalledTimes(3);
+      expect(onTimeout).not.toHaveBeenCalled();
+      wd.clear();
+      vi.advanceTimersByTime(1000);
+      expect(onTick).toHaveBeenCalledTimes(3); // no further ticks after clear
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops ticking once the final timeout fires', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      const onTick = vi.fn();
+      const wd = createWatchdog(globalThis as unknown as Window, 1000, onTimeout, {
+        everyMs: 300,
+        onTick,
+      });
+      wd.arm();
+      vi.advanceTimersByTime(1000); // timeout at 1000; ticks at 300/600/900
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+      const atTimeout = onTick.mock.calls.length;
+      vi.advanceTimersByTime(2000);
+      expect(onTick.mock.calls.length).toBe(atTimeout); // pending tick was cancelled
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('attachTauri (Claude session binding)', () => {
+  function setup() {
+    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+    const invoke = (async (cmd: string, args?: Record<string, unknown>) => {
+      calls.push({ cmd, args });
+      if (cmd === 'claude_start') return 'claude-1';
+      if (cmd === 'tts_synthesize') throw new Error('no audio in test'); // keep AudioContext out
+      return undefined;
+    }) as InvokeFn;
+
+    const handlers: Record<string, (p: unknown) => void> = {};
+    const listen = (async (event: string, handler: (p: unknown) => void) => {
+      handlers[event] = handler; // registered synchronously
+      return () => {
+        delete handlers[event];
+      };
+    }) as unknown as ListenFn;
+
+    const avatarFactory = (): AvatarLike => ({
+      setParams() {},
+      setGlow() {},
+      setColors() {},
+      idleRotationSpeed: 0,
+      mesh: { rotation: { x: 0, y: 0, z: 0 }, scale: { set() {} } },
+      reducedMotion: false,
+      beforeRender: null,
+      mount() {},
+      start() {},
+      resize() {},
+      dispose() {},
+    });
+
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const handle = attachTauri({ root, view: window, invoke, listen, avatarFactory });
+    return { handle, calls, handlers };
+  }
+
+  const state = (): string | undefined => document.body.dataset.state;
+
+  it('subscribes per session and routes a thinking event to the Thinking state', async () => {
+    const { handle, handlers } = setup();
+    await handle.startClaude('C:/proj');
+    expect(handlers['claude://claude-1/thinking']).toBeTypeOf('function');
+    handlers['claude://claude-1/thinking']({ active: true });
+    expect(state()).toBe('thinking');
+    handlers['claude://claude-1/thinking']({ active: false });
+    expect(state()).toBe('idle');
+    handle.dispose();
+  });
+
+  it('submits an utterance to claude_submit with the session id', async () => {
+    const { handle, handlers, calls } = setup();
+    await handle.startClaude('C:/proj');
+    handlers['stt://final']({ text: 'refactor the parser' });
+    expect(calls).toContainEqual({
+      cmd: 'claude_submit',
+      args: { id: 'claude-1', text: 'refactor the parser' },
+    });
+    handle.dispose();
+  });
+
+  it('cancelClaude cancels the in-flight turn by id and returns to idle', async () => {
+    const { handle, handlers, calls } = setup();
+    await handle.startClaude('C:/proj');
+    handlers['claude://claude-1/thinking']({ active: true });
+    expect(state()).toBe('thinking');
+    handle.cancelClaude();
+    expect(calls).toContainEqual({ cmd: 'claude_cancel', args: { id: 'claude-1' } });
+    expect(state()).toBe('idle');
+    handle.dispose();
+  });
+
+  it('stopClaude stops the session by id and disconnects', async () => {
+    const { handle, calls } = setup();
+    await handle.startClaude('C:/proj');
+    expect(handle.isClaudeConnected()).toBe(true);
+    handle.stopClaude();
+    expect(calls).toContainEqual({ cmd: 'claude_stop', args: { id: 'claude-1' } });
+    expect(handle.isClaudeConnected()).toBe(false);
+    handle.dispose();
   });
 });
