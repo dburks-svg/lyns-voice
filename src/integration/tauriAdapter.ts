@@ -86,6 +86,8 @@ const defaultAvatarFactory: AvatarFactory = (options) => new QOrbAvatar(options)
 
 /** How long to wait for a Claude reply before recovering from a hung Thinking. */
 const WATCHDOG_MS = 120_000;
+/** How often to reassure ("Still working…") during a long Thinking turn. */
+const WATCHDOG_NOTICE_MS = 30_000;
 
 /** The timer surface the watchdog needs (injectable so tests use fake timers). */
 type TimerView = Pick<Window, 'setTimeout' | 'clearTimeout'>;
@@ -100,10 +102,36 @@ export interface Watchdog {
 /**
  * A single-shot, re-armable timeout. `arm()` while already armed is a no-op (the
  * countdown is not restarted), so repeated syncs during one Thinking turn don't
- * push the deadline out. Pure but for the injected timer; unit-tested.
+ * push the deadline out. An optional `progress` fires `onTick` every `everyMs`
+ * until the turn resolves (clear) or the deadline fires, so a long turn can reassure
+ * the user instead of looking frozen. Pure but for the injected timer; unit-tested.
  */
-export function createWatchdog(view: TimerView, ms: number, onTimeout: () => void): Watchdog {
+export function createWatchdog(
+  view: TimerView,
+  ms: number,
+  onTimeout: () => void,
+  progress?: { everyMs: number; onTick: () => void },
+): Watchdog {
   let timer: ReturnType<TimerView['setTimeout']> | null = null;
+  let tick: ReturnType<TimerView['setTimeout']> | null = null;
+  const clearTick = (): void => {
+    if (tick !== null) {
+      view.clearTimeout(tick);
+      tick = null;
+    }
+  };
+  // Chain setTimeouts (not setInterval) so the injected timer surface stays minimal
+  // and fake-timer tests drive it deterministically.
+  const scheduleTick = (): void => {
+    if (!progress) {
+      return;
+    }
+    tick = view.setTimeout(() => {
+      tick = null;
+      progress.onTick();
+      scheduleTick();
+    }, progress.everyMs);
+  };
   return {
     arm(): void {
       if (timer !== null) {
@@ -111,14 +139,17 @@ export function createWatchdog(view: TimerView, ms: number, onTimeout: () => voi
       }
       timer = view.setTimeout(() => {
         timer = null;
+        clearTick();
         onTimeout();
       }, ms);
+      scheduleTick();
     },
     clear(): void {
       if (timer !== null) {
         view.clearTimeout(timer);
         timer = null;
       }
+      clearTick();
     },
   };
 }
@@ -225,6 +256,8 @@ export interface TauriAdapterOptions {
   autoReconnect?: boolean;
   /** Whether to show a system notification when a turn ends while backgrounded. */
   notifyOnTurnEnd?: boolean;
+  /** Override the Thinking watchdog timeout in ms (default 120000). */
+  watchdogMs?: number;
 }
 
 export interface TauriHandle {
@@ -308,14 +341,30 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // response is pending (and not yet speaking) the watchdog is armed; if it fires,
   // drop out of Thinking and surface a message. It is cleared the moment the turn
   // resolves (speaking/idle) or on dispose.
-  const watchdog = createWatchdog(view, WATCHDOG_MS, () => {
-    if (signals.pendingResponse && !signals.speaking) {
-      console.warn('[tauri-claude] watchdog: no reply in time; recovering from Thinking');
-      safeSetText(options.caption ?? null, 'No response (timed out). Please try again.');
-      signals.pendingResponse = false;
-      sync();
-    }
-  });
+  const watchdog = createWatchdog(
+    view,
+    options.watchdogMs ?? WATCHDOG_MS,
+    () => {
+      if (signals.pendingResponse && !signals.speaking) {
+        console.warn('[tauri-claude] watchdog: no reply in time; recovering from Thinking');
+        safeSetText(
+          options.caption ?? null,
+          'Claude did not respond in time; the turn was dropped. Please try again.',
+        );
+        signals.pendingResponse = false;
+        sync();
+      }
+    },
+    {
+      everyMs: WATCHDOG_NOTICE_MS,
+      onTick: () => {
+        // Reassure during a long turn so a working Claude does not look frozen.
+        if (signals.pendingResponse && !signals.speaking) {
+          safeSetText(options.caption ?? null, 'Still working…');
+        }
+      },
+    },
+  );
 
   const sync = (): void => {
     // While a Claude response is pending (Thinking), suppress the Listening STATE
