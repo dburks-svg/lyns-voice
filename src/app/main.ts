@@ -391,6 +391,18 @@ async function bootstrap(): Promise<void> {
         panel.addLine('user', text); // echo typed input into the stream
         handle.submitText(text); // same path as a voice utterance
       },
+      onAttach: () => {
+        // Pick a file and stage a reference in the compose box (no copy into root);
+        // the user reviews/edits before sending, and Claude reads it by path.
+        void import('@tauri-apps/plugin-dialog')
+          .then(async ({ open }) => {
+            const path = await open({ multiple: false, directory: false });
+            if (typeof path === 'string' && path) {
+              panel.appendToInput(`Read the file at "${path}" and use it.`);
+            }
+          })
+          .catch((e) => console.warn('[attach]', e));
+      },
       onFocus: () => {
         if (panel.el.style.zIndex !== '11') panel.el.style.zIndex = '11';
       },
