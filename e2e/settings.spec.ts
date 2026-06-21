@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { seedOnboarded } from './helpers/tauri-mock';
 
 /**
  * Settings drawer and theme switching. These controls are pure DOM + localStorage
@@ -7,6 +8,10 @@ import { test, expect } from '@playwright/test';
  * The drawer uses a CSS transition (opacity 0 -> 1) with `display: block` even
  * when `hidden`, so we assert on the attribute rather than Playwright visibility.
  */
+
+test.beforeEach(async ({ page }) => {
+  await seedOnboarded(page); // skip the first-run overlay (this spec uses no IPC mock)
+});
 
 test('settings drawer toggles open and closed', async ({ page }) => {
   await page.goto('/');

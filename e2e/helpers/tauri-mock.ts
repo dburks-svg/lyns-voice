@@ -7,6 +7,24 @@ import { type Page } from '@playwright/test';
  *
  * Must be called BEFORE `page.goto('/')`.
  */
+/**
+ * Seed settings so the first-run onboarding overlay never intercepts test clicks.
+ * Merges into any existing settings (runs on every navigation, so it must not clobber
+ * values a test persisted before a reload, e.g. the chosen theme).
+ */
+export async function seedOnboarded(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      const KEY = 'q-app-settings';
+      const cur = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
+      cur.onboarded = true;
+      localStorage.setItem(KEY, JSON.stringify(cur));
+    } catch {
+      /* localStorage unavailable; ignore */
+    }
+  });
+}
+
 export async function installTauriMock(
   page: Page,
   invokeHandlers?: Record<string, (args: Record<string, unknown>) => unknown>,
@@ -17,6 +35,7 @@ export async function installTauriMock(
     ),
   );
 
+  await seedOnboarded(page);
   await page.addInitScript((serialized: string) => {
     const handlers: Record<string, (a: Record<string, unknown>) => unknown> = {};
     for (const [cmd, fnStr] of Object.entries(

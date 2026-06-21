@@ -37,7 +37,7 @@ test('connect button calls claude_start and updates UI', async ({ page }) => {
 
 test('claude://ready event updates the caption', async ({ page }) => {
   await installTauriMock(page, {
-    claude_start: () => null,
+    claude_start: () => 'claude-1',
     tts_list_voices: () => [],
   });
 
@@ -50,7 +50,7 @@ test('claude://ready event updates the caption', async ({ page }) => {
   await page.click('#claude-btn');
   await page.waitForTimeout(800);
 
-  await emitTauriEvent(page, 'claude://ready', {
+  await emitTauriEvent(page, 'claude://claude-1/ready', {
     active: true,
     cwd: '/test/project',
   });
@@ -64,7 +64,7 @@ test('claude://turn-end with mood tag strips the marker from caption', async ({
   page,
 }) => {
   await installTauriMock(page, {
-    claude_start: () => null,
+    claude_start: () => 'claude-1',
     tts_synthesize: () => [],
     tts_list_voices: () => [],
   });
@@ -91,7 +91,7 @@ test('claude://turn-end with mood tag strips the marker from caption', async ({
   await page.click('#claude-btn');
   await page.waitForTimeout(800);
 
-  await emitTauriEvent(page, 'claude://turn-end', {
+  await emitTauriEvent(page, 'claude://claude-1/turn-end', {
     text: '<<mood:happy>>Hello from Claude!',
     is_error: false,
   });

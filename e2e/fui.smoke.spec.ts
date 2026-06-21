@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { seedOnboarded } from './helpers/tauri-mock';
 
 /**
  * End-to-end smoke for the FUI app shell at `/` (the Tauri webview entry). It
@@ -8,6 +9,7 @@ import { test, expect } from '@playwright/test';
  * renders without them.
  */
 test('renders the WebGL orb, telemetry panels, and mic', async ({ page }) => {
+  await seedOnboarded(page);
   await page.goto('/');
 
   // The holographic orb is a real, sized WebGL canvas mounted full-window.
@@ -20,8 +22,9 @@ test('renders the WebGL orb, telemetry panels, and mic', async ({ page }) => {
   });
   expect(ready).toBe(true);
 
-  // The floating telemetry panels and the TAP TO TALK mic are present.
-  await expect(page.locator('.panel')).toHaveCount(2);
+  // The transcript panel and the TAP TO TALK mic are present. (The mic oscilloscope
+  // was docked under the talk control, so it is no longer a separate floating panel.)
+  await expect(page.locator('.panel')).toHaveCount(1);
   await expect(page.locator('#mic-fab')).toBeVisible();
 
   await page.screenshot({ path: 'test-results/fui-app.png' });
