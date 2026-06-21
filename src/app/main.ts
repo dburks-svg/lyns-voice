@@ -9,6 +9,7 @@ import { SessionPanel } from './session/SessionPanel';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
+import { showOnboarding } from './onboarding';
 
 /**
  * Q desktop app entry.
@@ -176,6 +177,14 @@ async function bootstrap(): Promise<void> {
 
   // --- Settings controls ---
   wireSettings(settings);
+
+  // First-run onboarding overlay (shown once).
+  if (!settings.onboarded) {
+    showOnboarding(() => {
+      settings.onboarded = true;
+      saveSettings(settings);
+    });
+  }
 
   // Apply saved theme on startup and wire buttons to switch it live.
   // The orb gets its palette via controller.setPalette; the HUD gets its
@@ -642,11 +651,19 @@ function wireSettings(settings: AppSettings): void {
   // Voice selector: populate from SAPI
   if (voiceSelect && invoke) {
     void invoke('tts_list_voices').then((voices) => {
-      for (const name of voices as string[]) {
+      const list = voices as string[];
+      for (const name of list) {
         const opt = document.createElement('option');
         opt.value = name;
         opt.textContent = name;
         voiceSelect.appendChild(opt);
+      }
+      // Validate the saved voice: if it was uninstalled, fall back to default and
+      // tell the user rather than silently honoring a different voice.
+      if (settings.ttsVoice && !list.includes(settings.ttsVoice)) {
+        console.warn(`[settings] saved TTS voice "${settings.ttsVoice}" not found; using default`);
+        settings.ttsVoice = '';
+        saveSettings(settings);
       }
       if (settings.ttsVoice) voiceSelect.value = settings.ttsVoice;
     }).catch(() => {});

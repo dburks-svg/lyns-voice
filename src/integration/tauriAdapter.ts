@@ -563,10 +563,25 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       options.onUtterance?.(text);
     }
   });
+  let dlLast = 0;
+  let dlLastT = 0;
   addListener<{ state: string; downloaded: number; total: number }>('stt://model', (p) => {
     if (p.state === 'downloading') {
       const pct = p.total > 0 ? Math.floor((p.downloaded / p.total) * 100) : 0;
-      safeSetText(options.caption ?? null, `Downloading speech model… ${pct}%`);
+      // Estimate speed + ETA from the delta since the last progress event so the
+      // ~140 MB first-run download is not an opaque percentage.
+      const now = performance.now();
+      let suffix = '';
+      if (dlLastT > 0 && p.total > 0 && p.downloaded > dlLast) {
+        const bps = ((p.downloaded - dlLast) / (now - dlLastT)) * 1000;
+        if (bps > 0) {
+          const remain = Math.ceil((p.total - p.downloaded) / bps);
+          suffix = ` (${(bps / 1e6).toFixed(1)} MB/s, ~${remain}s left)`;
+        }
+      }
+      dlLast = p.downloaded;
+      dlLastT = now;
+      safeSetText(options.caption ?? null, `Downloading speech model… ${pct}%${suffix}`);
     } else if (p.state === 'ready') {
       safeSetText(options.caption ?? null, '');
     } else if (p.state === 'error') {

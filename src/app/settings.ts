@@ -26,6 +26,8 @@ export interface AppSettings {
   notifyOnTurnEnd: boolean;
   /** Voice barge-in: a spoken utterance during a reply cuts it off (default off). */
   bargeIn: boolean;
+  /** Whether the first-run onboarding overlay has been dismissed. */
+  onboarded: boolean;
   /** claude --model for new sessions (empty = claude's default). */
   model: string;
   /** claude --effort for new sessions (empty = claude's default). */
@@ -43,6 +45,7 @@ const DEFAULTS: AppSettings = {
   autoReconnect: true,
   notifyOnTurnEnd: true,
   bargeIn: false,
+  onboarded: false,
   model: '',
   effort: '',
 };
