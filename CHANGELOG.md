@@ -2,11 +2,23 @@
 
 All notable changes to Q are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions are not yet semver-tagged
-(the 1.0.0 stamp waits for the multi-session conductor).
+(the 1.0.0 stamp waits for hands-on validation of the conductor).
 
 ## [Unreleased] - the road to 1.0
 
 ### Added
+- **The conductor (multi-session)**: Q runs a fleet of Claude sessions.
+  - **Background multi-session** (Alt+N): spawn additional sessions, each its own panel you
+    watch and type into, running in parallel with the primary voice session.
+  - **Voice arbitration**: a worker's finished turn is announced through Q's single voice,
+    courteously - an error interrupts at the next pause; successes batch into a digest.
+  - **Marker orchestration**: the primary session can spawn and steer workers itself, by
+    voice, via `<<spawn:...>>` / `<<tell:...>>` / `<<propose:...>>` markers (parsed and
+    stripped exactly like the mood marker; the vocabulary is injected into its system prompt
+    at spawn, so only the primary emits markers and there is no recursive spawning).
+  - **Propose-then-approve**: Q proposes a parallel split; you approve or decline with a
+    click before any fan-out (N sessions = N-times the spend).
+  - **Fleet telemetry**: a combined cost readout across all live sessions.
 - **Per-session terminal panels**: each Claude session shows its live stream scrolling
   by (assistant narration, the tools it runs, and command output) with a multi-line
   compose box (Enter sends, Shift+Enter for newlines) so long pasted prompts work.
