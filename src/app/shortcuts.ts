@@ -5,6 +5,7 @@ export interface ShortcutActions {
   toggleSettings: () => void;
   toggleMic: () => void;
   toggleMini: () => void;
+  newSession: () => void;
   closeFocused: () => void;
 }
 
@@ -37,6 +38,11 @@ export function attachShortcuts(actions: ShortcutActions): () => void {
     if (e.altKey && e.key === 'j') {
       e.preventDefault();
       actions.toggleSession();
+      return;
+    }
+    if (e.altKey && e.key === 'n') {
+      e.preventDefault();
+      actions.newSession();
       return;
     }
     if (e.altKey && e.key === 's') {

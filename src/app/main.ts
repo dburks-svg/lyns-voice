@@ -6,6 +6,7 @@ import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { SessionPanel } from './session/SessionPanel';
+import { SessionManager } from './session/SessionManager';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
@@ -450,6 +451,31 @@ async function bootstrap(): Promise<void> {
     }
   }
 
+  // Background multi-session: Alt+N spawns an additional Claude session in its own
+  // panel (watch + type), independent of the primary voice session. The single voice
+  // channel stays on the primary session; background sessions notify when they finish.
+  const tauriInvoke = <T>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
+    import('@tauri-apps/api/core').then(({ invoke }) => invoke<T>(cmd, args));
+  const tauriListen = <T>(event: string, handler: (p: T) => void): Promise<() => void> =>
+    import('@tauri-apps/api/event').then(({ listen }) => listen<T>(event, (e) => handler(e.payload)));
+  const sessionMgr = new SessionManager({
+    invoke: tauriInvoke,
+    listen: tauriListen,
+    layer: sessionLayer ?? document.body,
+    defaults: () => ({
+      dir: (document.getElementById('claude-dir') as HTMLInputElement | null)?.value.trim() || undefined,
+      model: settings.model || undefined,
+      effort: settings.effort || undefined,
+    }),
+    onDone: (name, isError) => {
+      void import('@tauri-apps/plugin-notification')
+        .then(({ sendNotification }) => {
+          sendNotification({ title: 'Q', body: `${name} ${isError ? 'hit an error' : 'finished'}.` });
+        })
+        .catch(() => undefined);
+    },
+  });
+
   // Make telemetry panels draggable and resizable. Restore saved positions
   // from localStorage if available; otherwise snapshot from the grid layout.
   requestAnimationFrame(() => {
@@ -540,6 +566,7 @@ async function bootstrap(): Promise<void> {
     toggleSettings: () => settingsBtn?.click(),
     toggleMic,
     toggleMini: () => void miniMode.toggle(),
+    newSession: () => void sessionMgr.spawn(),
     closeFocused: () => {
       if (handle.interrupt()) return; // barge-in: cut off an in-flight turn first
       if (settingsDrawer && !settingsDrawer.hidden) {

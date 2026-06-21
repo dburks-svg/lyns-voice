@@ -9,6 +9,7 @@ function makeActions(): ShortcutActions {
     toggleSettings: vi.fn(),
     toggleMic: vi.fn(),
     toggleMini: vi.fn(),
+    newSession: vi.fn(),
     closeFocused: vi.fn(),
   };
 }
@@ -41,6 +42,14 @@ describe('attachShortcuts', () => {
     const cleanup = attachShortcuts(a);
     fire('j', { altKey: true });
     expect(a.toggleSession).toHaveBeenCalledOnce();
+    cleanup();
+  });
+
+  it('dispatches Alt+N to newSession', () => {
+    const a = makeActions();
+    const cleanup = attachShortcuts(a);
+    fire('n', { altKey: true });
+    expect(a.newSession).toHaveBeenCalledOnce();
     cleanup();
   });
 
