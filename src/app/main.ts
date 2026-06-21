@@ -11,6 +11,7 @@ import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from '
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
 import { showOnboarding } from './onboarding';
+import { showProposeCard } from './proposeCard';
 
 /**
  * Q desktop app entry.
@@ -69,6 +70,13 @@ async function bootstrap(): Promise<void> {
     },
     onConductorTell: (d) => {
       sessionMgr.tell(d.name, d.message);
+    },
+    onConductorPropose: (d) => {
+      showProposeCard({
+        summary: d.summary,
+        onApprove: () => handle.submitText('Approved. Go ahead and split it into the sessions you proposed.'),
+        onDecline: () => handle.submitText('Let us keep it in one session for now.'),
+      });
     },
     onDiff: (d) => addDiffEntry({
       tool: d.tool,
