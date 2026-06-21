@@ -1,6 +1,7 @@
 export interface ShortcutActions {
   toggleTerminal: () => void;
   toggleDiffs: () => void;
+  toggleSession: () => void;
   toggleSettings: () => void;
   toggleMic: () => void;
   toggleMini: () => void;
@@ -31,6 +32,11 @@ export function attachShortcuts(actions: ShortcutActions): () => void {
     if (e.altKey && e.key === 'd') {
       e.preventDefault();
       actions.toggleDiffs();
+      return;
+    }
+    if (e.altKey && e.key === 'j') {
+      e.preventDefault();
+      actions.toggleSession();
       return;
     }
     if (e.altKey && e.key === 's') {

@@ -238,6 +238,8 @@ export interface TauriAdapterOptions {
   onActivity?: (activity: ClaudeActivity) => void;
   /** File diff from Edit/Write tools (diff viewer panel). */
   onDiff?: (diff: ClaudeDiff) => void;
+  /** A live session stream line (assistant narration / command output) for the panel. */
+  onStream?: (line: { kind: string; text: string }) => void;
   /** Per-turn token usage + cost (HUD telemetry). */
   onUsage?: (usage: ClaudeUsage) => void;
   /** Live mic frequency bands per audio frame (HUD waveform). */
@@ -277,6 +279,8 @@ export interface TauriHandle {
   stopClaude(): void;
   /** Cancel the in-flight turn without disconnecting (barge-in / Escape). */
   cancelClaude(): void;
+  /** Submit typed text to the live session (typed = voice fallback, same path). */
+  submitText(text: string): void;
   /** Whether the Claude sidecar is connected. */
   isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
@@ -494,29 +498,37 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const addListener = <T>(event: string, handler: (payload: T) => void): void => {
     void listen<T>(event, handler).then((un) => unlisteners.push(un));
   };
+  // Submit text to the live session: turn-taking guard, transcript, lock Thinking,
+  // then claude_submit. Shared by voice (stt://final) and typed input (submitText),
+  // so the keyboard is a true co-equal path to the mic. Hoisted so both callers and
+  // the returned handle can reach it.
+  function submitToClaude(text: string): void {
+    // Turn-taking: ignore input while Claude is thinking or speaking (this also keeps
+    // the avatar from picking up its own TTS as a new request).
+    if (signals.pendingResponse || signals.speaking) {
+      return;
+    }
+    safeSetText(options.caption ?? null, text);
+    options.onTranscript?.('user', text); // HUD chat log
+    // Lock the turn synchronously NOW (before claude://thinking round-trips), so a
+    // back-to-back input is rejected by the guard above. Clear it if the submit IPC
+    // rejects, so a failed submit never wedges the UI in Thinking.
+    signals.pendingResponse = true;
+    sync();
+    void invoke('claude_submit', { id: currentSessionId, text }).catch((e: unknown) => {
+      console.warn('[tauri-claude] submit', e);
+      signals.pendingResponse = false;
+      sync();
+    });
+  }
+
   addListener<{ text: string }>('stt://final', (p) => {
     const text = (p.text ?? '').trim();
     if (!text) {
       return;
     }
     if (claudeConnected) {
-      // Turn-taking: ignore input while Claude is thinking or speaking (this also
-      // keeps the avatar from picking up its own TTS as a new request).
-      if (signals.pendingResponse || signals.speaking) {
-        return;
-      }
-      safeSetText(options.caption ?? null, text);
-      options.onTranscript?.('user', text); // HUD chat log
-      // Lock the turn synchronously NOW (before claude://thinking round-trips), so
-      // a back-to-back utterance is rejected by the guard above. Clear it if the
-      // submit IPC rejects, so a failed submit never wedges the UI in Thinking.
-      signals.pendingResponse = true;
-      sync();
-      void invoke('claude_submit', { id: currentSessionId, text }).catch((e: unknown) => {
-        console.warn('[tauri-claude] submit', e);
-        signals.pendingResponse = false;
-        sync();
-      });
+      submitToClaude(text);
     } else {
       safeSetText(options.caption ?? null, text);
       options.onTranscript?.('user', text); // HUD chat log
@@ -598,6 +610,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
     wire<ClaudeActivity>('activity', (p) => options.onActivity?.(p));
     wire<ClaudeDiff>('diff', (p) => options.onDiff?.(p));
+    wire<{ kind: string; text: string }>('stream', (p) => options.onStream?.(p));
     wire<ClaudeUsage>('usage', (p) => options.onUsage?.(p));
     wire<{ text: string; is_error: boolean }>('turn-end', (p) => {
       const text = (p.text ?? '').trim();
@@ -737,6 +750,10 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     startClaude,
     stopClaude,
     cancelClaude,
+    submitText: (text: string) => {
+      const t = (text ?? '').trim();
+      if (t && claudeConnected) submitToClaude(t);
+    },
     isClaudeConnected: () => claudeConnected,
     cancelReconnect,
     setState: (state) => controller.setState(state),

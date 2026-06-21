@@ -5,6 +5,7 @@ import { TelemetryPanels } from '../integration/telemetry';
 import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
+import { SessionPanel } from './session/SessionPanel';
 import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
@@ -56,7 +57,11 @@ async function bootstrap(): Promise<void> {
     initialTheme: (settings.theme as ThemeName) || undefined,
     caption: document.getElementById('caption'),
     onTranscript: (role, text) => panels.addTranscript(role, text),
-    onActivity: (a) => panels.addActivity(a.name, a.target),
+    onActivity: (a) => {
+      panels.addActivity(a.name, a.target);
+      addSessionLine('action', a.target ? `${a.name}  ${a.target}` : a.name);
+    },
+    onStream: (line) => addSessionLine(line.kind, line.text),
     onDiff: (d) => addDiffEntry({
       tool: d.tool,
       filePath: d.file_path,
@@ -131,6 +136,8 @@ async function bootstrap(): Promise<void> {
   claudeButton?.addEventListener('click', () => {
     if (handle.isClaudeConnected()) {
       handle.stopClaude();
+      sessionPanel?.destroy();
+      sessionPanel = null;
       claudeButton.textContent = 'connect claude';
       claudeButton.classList.remove('active');
       if (label) {
@@ -152,6 +159,7 @@ async function bootstrap(): Promise<void> {
       if (ok) {
         claudeButton.textContent = 'disconnect';
         claudeButton.classList.add('active');
+        ensureSessionPanel(); // open the session view on connect
       }
     });
   });
@@ -365,6 +373,52 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  // Session view: a floating terminal of the live Claude stream (narration, the
+  // tools it runs, command output) with a typed input as a co-equal to voice.
+  // Opens on connect; Alt+J toggles it. Reuses the diff floating layer.
+  const sessionLayer = document.getElementById('diff-layer');
+  let sessionPanel: SessionPanel | null = null;
+  const pendingStream: Array<{ kind: string; text: string }> = [];
+
+  function ensureSessionPanel(): SessionPanel {
+    if (sessionPanel) return sessionPanel;
+    const panel = new SessionPanel({
+      x: 80,
+      y: 90,
+      title: 'Q session',
+      onSubmit: (text) => {
+        panel.addLine('user', text); // echo typed input into the stream
+        handle.submitText(text); // same path as a voice utterance
+      },
+      onFocus: () => {
+        if (panel.el.style.zIndex !== '11') panel.el.style.zIndex = '11';
+      },
+      onClose: () => {
+        sessionPanel?.destroy();
+        sessionPanel = null;
+      },
+    });
+    (sessionLayer ?? document.body).appendChild(panel.el);
+    sessionPanel = panel;
+    for (const l of pendingStream) panel.addLine(l.kind, l.text);
+    pendingStream.length = 0;
+    return panel;
+  }
+
+  function addSessionLine(kind: string, text: string): void {
+    if (sessionPanel) sessionPanel.addLine(kind, text);
+    else pendingStream.push({ kind, text });
+  }
+
+  function toggleSessionPanel(): void {
+    if (sessionPanel) {
+      sessionPanel.destroy();
+      sessionPanel = null;
+    } else {
+      ensureSessionPanel();
+    }
+  }
+
   // Make telemetry panels draggable and resizable. Restore saved positions
   // from localStorage if available; otherwise snapshot from the grid layout.
   requestAnimationFrame(() => {
@@ -451,6 +505,7 @@ async function bootstrap(): Promise<void> {
   attachShortcuts({
     toggleTerminal: () => terminalBtn?.click(),
     toggleDiffs: () => diffBtn?.click(),
+    toggleSession: () => toggleSessionPanel(),
     toggleSettings: () => settingsBtn?.click(),
     toggleMic,
     toggleMini: () => void miniMode.toggle(),

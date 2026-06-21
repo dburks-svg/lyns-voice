@@ -1,0 +1,170 @@
+/* =====================================================================
+   Session view: a floating terminal of the live Claude stream
+   (narration / actions / command output) with a typed input.
+   Same FUI glass + z-index layer as the diff/terminal windows.
+   ===================================================================== */
+
+.session-window {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+
+  background: var(--glass);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  clip-path: var(--notch);
+  box-shadow:
+    0 0 26px rgba(var(--accent-rgb), 0.07),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+
+  min-width: 320px;
+  min-height: 220px;
+  border-radius: 0;
+}
+
+.session-window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-faint) 70%);
+  clip-path: var(--notch);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.session-window > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- Title bar: drag handle ---- */
+.session-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--accent-faint);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.session-titlebar:active {
+  cursor: grabbing;
+}
+
+.session-title {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.session-close {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 3px;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.session-close:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+
+/* ---- Stream body ---- */
+.session-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-soft) transparent;
+  user-select: text;
+}
+.session-stream::-webkit-scrollbar {
+  width: 5px;
+}
+.session-stream::-webkit-scrollbar-thumb {
+  background: var(--accent-faint);
+  border-radius: 3px;
+}
+
+.s-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+}
+
+/* Assistant narration: the prose that scrolls by in a real `claude` run. */
+.s-narration {
+  color: var(--ink, #cfe9f5);
+}
+
+/* A tool the session ran ("Read foo.ts", "Bash npm test"). */
+.s-action {
+  color: var(--accent);
+  text-shadow: 0 0 6px var(--accent-soft);
+}
+.s-action::before {
+  content: "\25B8  ";
+  opacity: 0.8;
+}
+
+/* Command output (stdout/stderr from the tools Claude ran). */
+.s-output {
+  color: var(--ink-dim);
+}
+
+/* The user's own typed/spoken input, echoed into the stream. */
+.s-user {
+  color: #7affaa;
+}
+.s-user::before {
+  content: "you  ";
+  opacity: 0.7;
+}
+
+/* ---- Input bar ---- */
+.session-inputbar {
+  display: flex;
+  flex-shrink: 0;
+  border-top: 1px solid var(--accent-faint);
+  padding: 6px 8px;
+}
+.session-input {
+  flex: 1;
+  appearance: none;
+  background: rgba(var(--accent-rgb), 0.04);
+  border: 1px solid var(--accent-faint);
+  color: var(--ink, #cfe9f5);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.session-input:focus {
+  border-color: var(--accent-soft);
+}
+.session-input::placeholder {
+  color: var(--ink-dim);
+  opacity: 0.7;
+}

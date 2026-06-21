@@ -5,6 +5,7 @@ function makeActions(): ShortcutActions {
   return {
     toggleTerminal: vi.fn(),
     toggleDiffs: vi.fn(),
+    toggleSession: vi.fn(),
     toggleSettings: vi.fn(),
     toggleMic: vi.fn(),
     toggleMini: vi.fn(),
@@ -32,6 +33,14 @@ describe('attachShortcuts', () => {
     const cleanup = attachShortcuts(a);
     fire('d', { altKey: true });
     expect(a.toggleDiffs).toHaveBeenCalledOnce();
+    cleanup();
+  });
+
+  it('dispatches Alt+J to toggleSession', () => {
+    const a = makeActions();
+    const cleanup = attachShortcuts(a);
+    fire('j', { altKey: true });
+    expect(a.toggleSession).toHaveBeenCalledOnce();
     cleanup();
   });
 
