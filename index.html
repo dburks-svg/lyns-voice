@@ -149,17 +149,6 @@
             <div class="t-empty">awaiting voice input&hellip;</div>
           </div>
         </section>
-
-        <!-- Bottom-left: live mic oscilloscope (telemetry injects the polyline) -->
-        <section class="panel panel-audio">
-          <header class="panel-head">
-            <span class="panel-title">Audio input</span>
-            <span class="panel-tag">mic</span>
-          </header>
-          <svg id="hud-wave" class="wave" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
-            <line class="wave-axis" x1="0" y1="61" x2="240" y2="61" />
-          </svg>
-        </section>
       </aside>
 
       <!-- Center column is intentionally empty: the full-window orb shows through
@@ -182,6 +171,10 @@
           </svg>
           <span class="mic-label">TAP TO TALK</span>
         </button>
+        <!-- Live mic oscilloscope, docked under the talk control (telemetry draws the line). -->
+        <svg id="hud-wave" class="mic-wave" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+          <line class="wave-axis" x1="0" y1="61" x2="240" y2="61" />
+        </svg>
       </footer>
     </main>
 

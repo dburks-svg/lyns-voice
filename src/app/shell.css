@@ -555,10 +555,11 @@ body[data-state="speaking"] {
 }
 
 
-/* Audio oscilloscope. */
-.wave {
-  width: 100%;
-  height: 92px;
+/* Mic oscilloscope, docked under the TAP TO TALK control (a slim ambient meter). */
+.mic-wave {
+  width: 132px;
+  height: 28px;
+  opacity: 0.75;
 }
 .wave-line {
   fill: none;
@@ -582,6 +583,7 @@ body[data-state="speaking"] {
   grid-row: 2;
   display: grid;
   place-items: center;
+  gap: 8px;
   padding-bottom: 6px;
 }
 .mic-button {
@@ -716,6 +718,9 @@ body.mini-mode .mic-button {
   padding: 6px;
 }
 body.mini-mode .mic-label {
+  display: none;
+}
+body.mini-mode .mic-wave {
   display: none;
 }
 body.mini-mode #mini-restore {
