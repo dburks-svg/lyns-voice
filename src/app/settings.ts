@@ -24,6 +24,10 @@ export interface AppSettings {
   snapThreshold: number;
   autoReconnect: boolean;
   notifyOnTurnEnd: boolean;
+  /** claude --model for new sessions (empty = claude's default). */
+  model: string;
+  /** claude --effort for new sessions (empty = claude's default). */
+  effort: string;
 }
 
 const DEFAULTS: AppSettings = {
@@ -36,6 +40,8 @@ const DEFAULTS: AppSettings = {
   snapThreshold: 12,
   autoReconnect: true,
   notifyOnTurnEnd: true,
+  model: '',
+  effort: '',
 };
 
 export function loadSettings(): AppSettings {

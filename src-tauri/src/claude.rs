@@ -49,6 +49,8 @@ struct ClaudeSession {
     child: Child,
     generation: u64,
     cwd: String,
+    model: Option<String>,
+    effort: Option<String>,
 }
 
 #[derive(Default)]
@@ -169,7 +171,12 @@ const DISALLOWED_TOOLS: &[&str] = &[
 /// is REQUIRED - no silent home-wide default with bypassPermissions). Returns the
 /// new session id; the webview subscribes to `claude://{id}/*` with it.
 #[tauri::command]
-pub async fn claude_start(app: AppHandle, dir: Option<String>) -> Result<String, String> {
+pub async fn claude_start(
+    app: AppHandle,
+    dir: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<String, String> {
     let cwd = match dir {
         Some(d) if !d.trim().is_empty() => PathBuf::from(d.trim()),
         _ => return Err("a project directory is required".into()),
@@ -178,8 +185,13 @@ pub async fn claude_start(app: AppHandle, dir: Option<String>) -> Result<String,
         return Err(format!("not a directory: {}", cwd.display()));
     }
     let id = format!("claude-{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-    launch_session(&app, id.clone(), cwd).await?;
+    launch_session(&app, id.clone(), cwd, blank_to_none(model), blank_to_none(effort)).await?;
     Ok(id)
+}
+
+/// Treat an empty/whitespace string from the webview as "use claude's default" (None).
+fn blank_to_none(s: Option<String>) -> Option<String> {
+    s.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// Send one user message into a live session. Flags Thinking ONLY after the write
@@ -224,20 +236,20 @@ pub async fn claude_submit(app: AppHandle, id: String, text: String) -> Result<(
 /// preserves context proves available there, it can replace the relaunch.
 #[tauri::command]
 pub async fn claude_cancel(app: AppHandle, id: String) -> Result<(), String> {
-    let cwd = {
+    let (cwd, model, effort) = {
         let state = app.state::<ClaudeState>();
         let mut sessions = state.sessions.lock().await;
         match sessions.remove(&id) {
             Some(mut s) => {
                 s.generation = 0; // belt-and-suspenders: also removed from the map
                 let _ = s.child.start_kill();
-                PathBuf::from(s.cwd)
+                (PathBuf::from(s.cwd), s.model, s.effort)
             }
             None => return Err("claude session not started".into()),
         }
     };
     let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: false });
-    launch_session(&app, id, cwd).await
+    launch_session(&app, id, cwd, model, effort).await
 }
 
 /// End a session (`id`), or every session when `id` is None (used on dispose):
@@ -263,13 +275,19 @@ pub async fn claude_stop(app: AppHandle, id: Option<String>) -> Result<(), Strin
 
 /// Spawn a `claude` child in `cwd`, register it under `id`, and start its stdout
 /// reader. Shared by `claude_start` (new id) and `claude_cancel` (same id).
-async fn launch_session(app: &AppHandle, id: String, cwd: PathBuf) -> Result<(), String> {
+async fn launch_session(
+    app: &AppHandle,
+    id: String,
+    cwd: PathBuf,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<(), String> {
     let fallback = app
         .path()
         .home_dir()
         .ok()
         .map(|h| h.join(".local").join("bin").join("claude.exe"));
-    let mut child = spawn_claude(&cwd, fallback.as_deref())?;
+    let mut child = spawn_claude(&cwd, fallback.as_deref(), model.as_deref(), effort.as_deref())?;
 
     let stdin = child.stdin.take().ok_or("claude stdin unavailable")?;
     let stdout = child.stdout.take().ok_or("claude stdout unavailable")?;
@@ -287,6 +305,8 @@ async fn launch_session(app: &AppHandle, id: String, cwd: PathBuf) -> Result<(),
                 child,
                 generation: my_gen,
                 cwd: cwd_str.clone(),
+                model,
+                effort,
             },
         );
     }
@@ -359,7 +379,12 @@ async fn is_current(app: &AppHandle, id: &str, my_gen: u64) -> bool {
 
 /// Spawn `claude` from PATH, falling back to the native-installer location so a
 /// GUI launch with a thinner PATH still finds it.
-fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
+fn spawn_claude(
+    cwd: &Path,
+    fallback: Option<&Path>,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<Child, String> {
     let build = |program: &OsStr| {
         let mut c = Command::new(program);
         c.args(BASE_ARGS);
@@ -368,6 +393,13 @@ fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
         // patterns are passed literally to claude, not expanded by a shell).
         c.arg("--allowedTools").args(ALLOWED_TOOLS);
         c.arg("--disallowedTools").args(DISALLOWED_TOOLS);
+        // Per-session model/effort, set at spawn; absent => claude's own default.
+        if let Some(m) = model {
+            c.arg("--model").arg(m);
+        }
+        if let Some(e) = effort {
+            c.arg("--effort").arg(e);
+        }
         c.current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

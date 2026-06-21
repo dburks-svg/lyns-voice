@@ -273,8 +273,8 @@ export interface TauriHandle {
   stopListening(): void;
   /** Whether the mic is currently capturing. */
   isListening(): boolean;
-  /** Start the Claude Code sidecar in `dir` (defaults to home). Utterances route to it. */
-  startClaude(dir?: string): Promise<boolean>;
+  /** Start the Claude Code sidecar in `dir` with optional per-session model/effort. */
+  startClaude(dir?: string, model?: string, effort?: string): Promise<boolean>;
   /** Stop the Claude sidecar; utterances revert to caption-only. */
   stopClaude(): void;
   /** Cancel the in-flight turn without disconnecting (barge-in / Escape). */
@@ -584,6 +584,8 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   let claudeConnected = false;
   let userDisconnected = false;
   let lastDir = '';
+  let lastModel = '';
+  let lastEffort = '';
   // The active session's id and its event unlisteners. Claude events are namespaced
   // `claude://{id}/*`, so the subscription is per-session and torn down on stop/replace.
   let currentSessionId: string | null = null;
@@ -689,9 +691,12 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     reconnectAttempts = 0;
   };
 
-  const startClaude = async (dir?: string): Promise<boolean> => {
+  const startClaude = async (dir?: string, model?: string, effort?: string): Promise<boolean> => {
     userDisconnected = false;
     if (dir) lastDir = dir;
+    // Remember model/effort so a reconnect/relaunch reuses them (undefined = unchanged).
+    if (model !== undefined) lastModel = model;
+    if (effort !== undefined) lastEffort = effort;
     // Single active session in Phase 5: tear down the previous one (listeners + child)
     // before starting a fresh one, so a reconnect/restart never leaks a session.
     if (currentSessionId) {
@@ -701,7 +706,11 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       void invoke('claude_stop', { id: prev }).catch(() => undefined);
     }
     try {
-      const id = await invoke<string>('claude_start', dir ? { dir } : {});
+      const args: Record<string, unknown> = {};
+      if (lastDir) args.dir = lastDir;
+      if (lastModel) args.model = lastModel;
+      if (lastEffort) args.effort = lastEffort;
+      const id = await invoke<string>('claude_start', args);
       currentSessionId = id;
       subscribeClaude(id);
       claudeConnected = true;

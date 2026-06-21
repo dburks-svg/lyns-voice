@@ -152,7 +152,7 @@ async function bootstrap(): Promise<void> {
       }
       return;
     }
-    void handle.startClaude(dir).then((ok) => {
+    void handle.startClaude(dir, settings.model || undefined, settings.effort || undefined).then((ok) => {
       if (label) {
         label.textContent = ok ? 'Claude connected' : 'claude start failed (see logs)';
       }
@@ -225,8 +225,8 @@ async function bootstrap(): Promise<void> {
     }).catch(() => undefined);
 
     const origStartClaude = handle.startClaude.bind(handle);
-    handle.startClaude = async (dir?: string): Promise<boolean> => {
-      const ok = await origStartClaude(dir);
+    handle.startClaude = async (dir?: string, model?: string, effort?: string): Promise<boolean> => {
+      const ok = await origStartClaude(dir, model, effort);
       if (ok && dir) {
         void tauri.invoke('history_load').then((result) => {
           const dirs = result as string[];
@@ -656,6 +656,19 @@ function wireSettings(settings: AppSettings): void {
     saveSettings(settings);
   });
 
+  // Model + effort: applied to the NEXT connected session (per session, set at spawn).
+  const modelSelect = document.getElementById('set-model') as HTMLSelectElement | null;
+  const effortSelect = document.getElementById('set-effort') as HTMLSelectElement | null;
+  if (modelSelect) modelSelect.value = settings.model;
+  if (effortSelect) effortSelect.value = settings.effort;
+  modelSelect?.addEventListener('change', () => {
+    settings.model = modelSelect.value;
+    saveSettings(settings);
+  });
+  effortSelect?.addEventListener('change', () => {
+    settings.effort = effortSelect.value;
+    saveSettings(settings);
+  });
 }
 
 function panelId(el: HTMLElement): string | undefined {

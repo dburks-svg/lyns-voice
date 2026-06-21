@@ -297,4 +297,14 @@ describe('attachTauri (Claude session binding)', () => {
     expect(handle.isClaudeConnected()).toBe(false);
     handle.dispose();
   });
+
+  it('passes per-session model and effort to claude_start', async () => {
+    const { handle, calls } = setup();
+    await handle.startClaude('C:/proj', 'opus', 'high');
+    expect(calls).toContainEqual({
+      cmd: 'claude_start',
+      args: { dir: 'C:/proj', model: 'opus', effort: 'high' },
+    });
+    handle.dispose();
+  });
 });
