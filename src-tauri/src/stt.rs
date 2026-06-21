@@ -438,60 +438,107 @@ fn model_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn download_model(app: &AppHandle, dest: &Path) -> Result<(), String> {
+    let tmp = dest.with_extension("part");
+    const MAX_ATTEMPTS: u32 = 4;
+    let mut last_err = String::new();
+    for attempt in 1..=MAX_ATTEMPTS {
+        match try_download(app, dest, &tmp) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = e;
+                log::warn!(
+                    "[stt] model download attempt {attempt}/{MAX_ATTEMPTS} failed: {last_err}"
+                );
+                // A network failure leaves the .part so the next attempt resumes; a
+                // checksum/size failure already removed it (clean restart). Backoff
+                // grows 2s, 4s, 8s between attempts.
+                if attempt < MAX_ATTEMPTS {
+                    std::thread::sleep(std::time::Duration::from_secs(1u64 << attempt));
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&tmp);
+    Err(format!("{last_err} (after {MAX_ATTEMPTS} attempts)"))
+}
+
+/// One download attempt. Resumes from an existing `.part` when the server honors a
+/// Range request (206), otherwise starts clean (200). Leaves the `.part` in place on
+/// a network error (so the next attempt resumes) and removes it on a corrupt result
+/// (checksum/size) so the next attempt restarts from scratch.
+fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> {
+    const MAX_MODEL_BYTES: u64 = 512 * 1024 * 1024;
+    let mut resume_from = std::fs::metadata(tmp).map(|m| m.len()).unwrap_or(0);
     let _ = app.emit(
         "stt://model",
-        ModelStatus { state: "downloading", downloaded: 0, total: 0 },
+        ModelStatus { state: "downloading", downloaded: resume_from, total: 0 },
     );
+
     // Explicit timeouts so a stalled/half-open socket cannot park the load thread
-    // forever (the first tap-to-talk awaits this). 15 min is a generous overall cap
-    // for the ~140 MB download while still bounding a true hang.
-    let resp = reqwest::blocking::Client::builder()
+    // forever (the first tap-to-talk awaits this). 15 min overall caps the ~140 MB
+    // download while still bounding a true hang.
+    let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(30))
         .timeout(std::time::Duration::from_secs(900))
         .build()
-        .map_err(|e| format!("http client: {e}"))?
-        .get(MODEL_URL)
-        .send()
-        .map_err(|e| format!("model download: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("model download HTTP {}", resp.status()));
+        .map_err(|e| format!("http client: {e}"))?;
+    let mut req = client.get(MODEL_URL);
+    if resume_from > 0 {
+        req = req.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
     }
-    let total = resp.content_length().unwrap_or(0);
+    let resp = req.send().map_err(|e| format!("model download: {e}"))?;
+    let status = resp.status();
+
+    // Open the destination + seed the hasher, branching on whether the resume took.
+    let (mut file, mut hasher, total) =
+        if resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT {
+            // 206: append to the partial and re-hash the bytes already on disk so the
+            // final checksum covers the whole file.
+            let existing = std::fs::read(tmp).map_err(|e| format!("read partial: {e}"))?;
+            resume_from = existing.len() as u64;
+            let mut hasher = Sha256::new();
+            hasher.update(&existing);
+            let file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(tmp)
+                .map_err(|e| format!("open partial: {e}"))?;
+            let remaining = resp.content_length().unwrap_or(0);
+            (file, hasher, resume_from + remaining)
+        } else {
+            // No partial, or the server ignored Range (200) / returned an error: restart.
+            if !status.is_success() {
+                return Err(format!("model download HTTP {status}"));
+            }
+            resume_from = 0;
+            let file =
+                std::fs::File::create(tmp).map_err(|e| format!("create temp model: {e}"))?;
+            (file, Sha256::new(), resp.content_length().unwrap_or(0))
+        };
+
     // Sanity cap: the known model is ~142 MB. Reject an absurd body (hijacked URL)
     // before it can fill the disk, even though the checksum would reject it later.
-    const MAX_MODEL_BYTES: u64 = 512 * 1024 * 1024;
     if total > MAX_MODEL_BYTES {
+        let _ = std::fs::remove_file(tmp);
         return Err(format!("model too large: {total} bytes"));
     }
 
-    let tmp = dest.with_extension("part");
-    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create temp model: {e}"))?;
-    let mut hasher = Sha256::new();
     let mut reader = resp;
     let mut buf = vec![0u8; 1 << 16];
-    let mut downloaded: u64 = 0;
-    let mut last_emit: u64 = 0;
-    // Remove the partial file on any early exit (read/write error or size cap), so
-    // an interrupted download never leaves a stale .part behind.
-    let fail = |tmp: &Path, msg: String| -> String {
-        let _ = std::fs::remove_file(tmp);
-        msg
-    };
+    let mut downloaded: u64 = resume_from;
+    let mut last_emit: u64 = resume_from;
     loop {
-        let n = match reader.read(&mut buf) {
-            Ok(n) => n,
-            Err(e) => return Err(fail(&tmp, format!("model read: {e}"))),
-        };
+        // A read error keeps the partial on disk (it grew with each successful write),
+        // so the next attempt resumes from here via a Range request.
+        let n = reader.read(&mut buf).map_err(|e| format!("model read: {e}"))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
-        if let Err(e) = file.write_all(&buf[..n]) {
-            return Err(fail(&tmp, format!("model write: {e}")));
-        }
+        file.write_all(&buf[..n]).map_err(|e| format!("model write: {e}"))?;
         downloaded += n as u64;
         if downloaded > MAX_MODEL_BYTES {
-            return Err(fail(&tmp, "model exceeded size cap".into()));
+            let _ = std::fs::remove_file(tmp);
+            return Err("model exceeded size cap".into());
         }
         if downloaded - last_emit >= 4_000_000 {
             last_emit = downloaded;
@@ -506,10 +553,11 @@ fn download_model(app: &AppHandle, dest: &Path) -> Result<(), String> {
 
     let digest = format!("{:x}", hasher.finalize());
     if digest != MODEL_SHA256 {
-        let _ = std::fs::remove_file(&tmp);
+        // The completed bytes are wrong: discard so a retry restarts clean.
+        let _ = std::fs::remove_file(tmp);
         return Err(format!("model checksum mismatch (got {digest})"));
     }
-    std::fs::rename(&tmp, dest).map_err(|e| format!("finalize model: {e}"))?;
+    std::fs::rename(tmp, dest).map_err(|e| format!("finalize model: {e}"))?;
     let _ = app.emit(
         "stt://model",
         ModelStatus { state: "ready", downloaded, total },
