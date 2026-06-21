@@ -16,8 +16,10 @@ export interface SessionPanelOptions {
   width?: number;
   height?: number;
   title?: string;
-  /** Typed input submitted (Enter). */
+  /** Typed/pasted input submitted (Enter; Shift+Enter inserts a newline). */
   onSubmit: (text: string) => void;
+  /** Optional attach action (file picker); the button is hidden when absent. */
+  onAttach?: () => void;
   onFocus: () => void;
   onClose: () => void;
 }
@@ -29,7 +31,7 @@ const MAX_LINES = 500;
 export class SessionPanel {
   readonly el: HTMLElement;
   private streamBody: HTMLElement;
-  private input: HTMLInputElement;
+  private input: HTMLTextAreaElement;
   private cleanup: (() => void) | null = null;
 
   constructor(opts: SessionPanelOptions) {
@@ -48,8 +50,10 @@ export class SessionPanel {
       </div>
       <div class="session-stream"></div>
       <form class="session-inputbar">
-        <input class="session-input" type="text" autocomplete="off" spellcheck="false"
-               placeholder="Type to Q  (Enter to send)" aria-label="Message to Q" />
+        <button type="button" class="session-attach" title="Attach a file by path" aria-label="Attach a file">+</button>
+        <textarea class="session-input" rows="1" autocomplete="off" spellcheck="false"
+                  placeholder="Type or paste to Q  (Enter to send, Shift+Enter for a newline)"
+                  aria-label="Message to Q"></textarea>
       </form>
       ${RESIZE_DIRS.map((d) => `<div class="resize-handle rh-${d}" data-dir="${d}"></div>`).join('')}
     `;
@@ -64,15 +68,39 @@ export class SessionPanel {
       opts.onClose();
     });
 
+    const submit = (): void => {
+      const text = this.input.value.trim();
+      if (!text) return;
+      opts.onSubmit(text);
+      this.input.value = '';
+      this.input.style.height = 'auto'; // collapse the grown textarea back to one row
+    };
     const form = this.el.querySelector<HTMLFormElement>('.session-inputbar')!;
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const text = this.input.value.trim();
-      if (text) {
-        opts.onSubmit(text);
-        this.input.value = '';
+      submit();
+    });
+    // Enter sends; Shift+Enter inserts a newline so long, multi-line prompts can be composed.
+    this.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submit();
       }
     });
+    // Auto-grow the textarea (up to a cap) as the prompt gets longer.
+    this.input.addEventListener('input', () => {
+      this.input.style.height = 'auto';
+      this.input.style.height = `${Math.min(this.input.scrollHeight, 140)}px`;
+    });
+    const attachBtn = this.el.querySelector<HTMLButtonElement>('.session-attach')!;
+    if (opts.onAttach) {
+      attachBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        opts.onAttach?.();
+      });
+    } else {
+      attachBtn.style.display = 'none';
+    }
 
     const titlebar = this.el.querySelector<HTMLElement>('.session-titlebar')!;
     this.cleanup = attachDragResize({
@@ -96,6 +124,13 @@ export class SessionPanel {
       body.removeChild(body.firstElementChild);
     }
     if (nearBottom) body.scrollTop = body.scrollHeight;
+  }
+
+  /** Append text to the compose box (used by attach to insert a file reference). */
+  appendToInput(text: string): void {
+    this.input.value = this.input.value ? `${this.input.value} ${text}` : text;
+    this.input.dispatchEvent(new Event('input')); // re-grow to fit
+    this.input.focus();
   }
 
   destroy(): void {

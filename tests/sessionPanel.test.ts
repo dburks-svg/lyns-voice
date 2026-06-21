@@ -26,24 +26,41 @@ describe('SessionPanel', () => {
     panel.destroy();
   });
 
-  it('submits typed input on Enter and clears the field', () => {
+  it('submits on Enter and clears the field', () => {
     const { panel, onSubmit } = make();
-    const input = panel.el.querySelector<HTMLInputElement>('.session-input')!;
-    const form = panel.el.querySelector<HTMLFormElement>('.session-inputbar')!;
+    const input = panel.el.querySelector<HTMLTextAreaElement>('.session-input')!;
     input.value = '  refactor the parser  ';
-    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     expect(onSubmit).toHaveBeenCalledWith('refactor the parser');
     expect(input.value).toBe('');
     panel.destroy();
   });
 
-  it('ignores an empty submit', () => {
+  it('Shift+Enter does not submit (newline for multi-line compose)', () => {
     const { panel, onSubmit } = make();
-    const input = panel.el.querySelector<HTMLInputElement>('.session-input')!;
-    const form = panel.el.querySelector<HTMLFormElement>('.session-inputbar')!;
-    input.value = '   ';
-    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const input = panel.el.querySelector<HTMLTextAreaElement>('.session-input')!;
+    input.value = 'line one';
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }),
+    );
     expect(onSubmit).not.toHaveBeenCalled();
+    panel.destroy();
+  });
+
+  it('ignores an empty Enter', () => {
+    const { panel, onSubmit } = make();
+    const input = panel.el.querySelector<HTMLTextAreaElement>('.session-input')!;
+    input.value = '   ';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    panel.destroy();
+  });
+
+  it('appendToInput stages a file reference for attach', () => {
+    const { panel } = make();
+    const input = panel.el.querySelector<HTMLTextAreaElement>('.session-input')!;
+    panel.appendToInput('see C:/x/plan.md');
+    expect(input.value).toContain('plan.md');
     panel.destroy();
   });
 
