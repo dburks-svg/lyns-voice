@@ -33,6 +33,7 @@ pub fn run() {
       stt::stt_push_frame,
       claude::claude_start,
       claude::claude_submit,
+      claude::claude_cancel,
       claude::claude_stop,
       terminal::terminal_spawn,
       terminal::terminal_write,

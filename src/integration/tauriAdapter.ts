@@ -242,6 +242,8 @@ export interface TauriHandle {
   startClaude(dir?: string): Promise<boolean>;
   /** Stop the Claude sidecar; utterances revert to caption-only. */
   stopClaude(): void;
+  /** Cancel the in-flight turn without disconnecting (barge-in / Escape). */
+  cancelClaude(): void;
   /** Whether the Claude sidecar is connected. */
   isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
@@ -450,7 +452,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       // submit IPC rejects, so a failed submit never wedges the UI in Thinking.
       signals.pendingResponse = true;
       sync();
-      void invoke('claude_submit', { text }).catch((e: unknown) => {
+      void invoke('claude_submit', { id: currentSessionId, text }).catch((e: unknown) => {
         console.warn('[tauri-claude] submit', e);
         signals.pendingResponse = false;
         sync();
@@ -510,79 +512,101 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   let claudeConnected = false;
   let userDisconnected = false;
   let lastDir = '';
+  // The active session's id and its event unlisteners. Claude events are namespaced
+  // `claude://{id}/*`, so the subscription is per-session and torn down on stop/replace.
+  let currentSessionId: string | null = null;
+  let claudeUnlisteners: Array<() => void> = [];
   let reconnectAttempts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const MAX_RECONNECT = 5;
   const autoReconnect = options.autoReconnect !== false;
 
-  addListener<{ active: boolean }>('claude://thinking', (p) => {
-    signals.pendingResponse = p.active;
-    sync();
-  });
-  // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
-  addListener<ClaudeActivity>('claude://activity', (p) => options.onActivity?.(p));
-  addListener<ClaudeDiff>('claude://diff', (p) => options.onDiff?.(p));
-  addListener<ClaudeUsage>('claude://usage', (p) => options.onUsage?.(p));
-  addListener<{ text: string; is_error: boolean }>('claude://turn-end', (p) => {
-    const text = (p.text ?? '').trim();
-    if (!text || p.is_error) {
-      // Nothing to speak: clear Thinking now; surface an error reply as a caption.
-      signals.pendingResponse = false;
-      if (text && p.is_error) {
-        safeSetText(options.caption ?? null, text);
-      }
+  // Subscribe to one session's namespaced events. Hoisted so `startClaude` (declared
+  // below) can call it; its handlers reference `startClaude` only at event time, by
+  // which point it is initialized. Unlisteners collect into `claudeUnlisteners` so the
+  // set can be torn down independently when the session stops or is replaced.
+  function subscribeClaude(id: string): void {
+    const wire = <T>(kind: string, handler: (p: T) => void): void => {
+      void listen<T>(`claude://${id}/${kind}`, handler).then((un) => {
+        claudeUnlisteners.push(un);
+      });
+    };
+    wire<{ active: boolean }>('thinking', (p) => {
+      signals.pendingResponse = p.active;
       sync();
-      return;
-    }
-    // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
-    // Speaking, so there is no idle flicker between Thinking and the spoken reply.
-    void speak(text);
-    if (!windowFocused && notifyOnTurnEnd) {
-      void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
-        sendNotification({ title: 'Q', body: 'Response ready.' });
-      }).catch(() => undefined);
-      void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-        void getCurrentWindow().requestUserAttention(2);
-      }).catch(() => undefined);
-    }
-  });
-  addListener<{ active: boolean; cwd: string }>('claude://ready', (p) => {
-    if (p.active) {
-      if (p.cwd) {
-        safeSetText(options.caption ?? null, `Claude connected: ${p.cwd}`);
+    });
+    // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
+    wire<ClaudeActivity>('activity', (p) => options.onActivity?.(p));
+    wire<ClaudeDiff>('diff', (p) => options.onDiff?.(p));
+    wire<ClaudeUsage>('usage', (p) => options.onUsage?.(p));
+    wire<{ text: string; is_error: boolean }>('turn-end', (p) => {
+      const text = (p.text ?? '').trim();
+      if (!text || p.is_error) {
+        // Nothing to speak: clear Thinking now; surface an error reply as a caption.
+        signals.pendingResponse = false;
+        if (text && p.is_error) {
+          safeSetText(options.caption ?? null, text);
+        }
+        sync();
+        return;
       }
-      reconnectAttempts = 0;
-      options.onReconnectStatus?.({ attempting: false, attempt: 0, maxAttempts: MAX_RECONNECT });
-    } else {
-      claudeConnected = false;
-      signals.pendingResponse = false;
-      sync();
-      if (!userDisconnected && autoReconnect && lastDir && reconnectAttempts < MAX_RECONNECT) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
-        reconnectAttempts++;
-        options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null;
-          void startClaude(lastDir).then((ok) => {
-            if (!ok && reconnectAttempts < MAX_RECONNECT) {
-              // startClaude failed without a ready event; trigger next attempt
-              const nextDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
-              reconnectAttempts++;
-              options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-              reconnectTimer = setTimeout(() => {
-                reconnectTimer = null;
-                void startClaude(lastDir);
-              }, nextDelay);
-            } else if (!ok) {
-              options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-            }
-          });
-        }, delay);
-      } else if (!userDisconnected && autoReconnect && reconnectAttempts >= MAX_RECONNECT) {
-        options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+      // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
+      // Speaking, so there is no idle flicker between Thinking and the spoken reply.
+      void speak(text);
+      if (!windowFocused && notifyOnTurnEnd) {
+        void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
+          sendNotification({ title: 'Q', body: 'Response ready.' });
+        }).catch(() => undefined);
+        void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+          void getCurrentWindow().requestUserAttention(2);
+        }).catch(() => undefined);
       }
+    });
+    wire<{ active: boolean; cwd: string }>('ready', (p) => {
+      if (p.active) {
+        if (p.cwd) {
+          safeSetText(options.caption ?? null, `Claude connected: ${p.cwd}`);
+        }
+        reconnectAttempts = 0;
+        options.onReconnectStatus?.({ attempting: false, attempt: 0, maxAttempts: MAX_RECONNECT });
+      } else {
+        claudeConnected = false;
+        signals.pendingResponse = false;
+        sync();
+        if (!userDisconnected && autoReconnect && lastDir && reconnectAttempts < MAX_RECONNECT) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+          reconnectAttempts++;
+          options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            void startClaude(lastDir).then((ok) => {
+              if (!ok && reconnectAttempts < MAX_RECONNECT) {
+                // startClaude failed without a ready event; trigger next attempt
+                const nextDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+                reconnectAttempts++;
+                options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+                reconnectTimer = setTimeout(() => {
+                  reconnectTimer = null;
+                  void startClaude(lastDir);
+                }, nextDelay);
+              } else if (!ok) {
+                options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+              }
+            });
+          }, delay);
+        } else if (!userDisconnected && autoReconnect && reconnectAttempts >= MAX_RECONNECT) {
+          options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+        }
+      }
+    });
+  }
+
+  function unsubscribeClaude(): void {
+    for (const un of claudeUnlisteners) {
+      un();
     }
-  });
+    claudeUnlisteners = [];
+  }
 
   const cancelReconnect = (): void => {
     if (reconnectTimer !== null) {
@@ -595,8 +619,18 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const startClaude = async (dir?: string): Promise<boolean> => {
     userDisconnected = false;
     if (dir) lastDir = dir;
+    // Single active session in Phase 5: tear down the previous one (listeners + child)
+    // before starting a fresh one, so a reconnect/restart never leaks a session.
+    if (currentSessionId) {
+      unsubscribeClaude();
+      const prev = currentSessionId;
+      currentSessionId = null;
+      void invoke('claude_stop', { id: prev }).catch(() => undefined);
+    }
     try {
-      await invoke('claude_start', dir ? { dir } : {});
+      const id = await invoke<string>('claude_start', dir ? { dir } : {});
+      currentSessionId = id;
+      subscribeClaude(id);
       claudeConnected = true;
       return true;
     } catch (e: unknown) {
@@ -605,11 +639,27 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       return false;
     }
   };
+  const cancelClaude = (): void => {
+    // Abandon the in-flight turn without disconnecting (the barge-in / Escape path in
+    // Phase 7 drives this). The reply queue and current playback are dropped too.
+    if (!currentSessionId) return;
+    void invoke('claude_cancel', { id: currentSessionId }).catch((e: unknown) =>
+      console.warn('[tauri-claude] cancel', e),
+    );
+    speechQueue.length = 0;
+    mediaTts.stop();
+    signals.pendingResponse = false;
+    signals.speaking = false;
+    sync();
+  };
   const stopClaude = (): void => {
     userDisconnected = true;
     cancelReconnect();
     claudeConnected = false;
-    void invoke('claude_stop').catch(() => undefined);
+    unsubscribeClaude();
+    const prev = currentSessionId;
+    currentSessionId = null;
+    void invoke('claude_stop', prev ? { id: prev } : {}).catch(() => undefined);
     speechQueue.length = 0; // drop any queued reply chunks
     mediaTts.stop(); // cut current playback (fires onSpeakingEnd -> drains to idle)
     signals.pendingResponse = false;
@@ -626,6 +676,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     isListening: () => capture.isActive,
     startClaude,
     stopClaude,
+    cancelClaude,
     isClaudeConnected: () => claudeConnected,
     cancelReconnect,
     setState: (state) => controller.setState(state),
@@ -638,6 +689,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       watchdog.clear();
       capture.stop();
       void invoke('stt_stop').catch(() => undefined);
+      unsubscribeClaude();
       void invoke('claude_stop').catch(() => undefined);
       for (const un of unlisteners) {
         un();

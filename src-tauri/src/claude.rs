@@ -1,4 +1,4 @@
-//! Claude Code bridge: drive the `claude` CLI as a long-lived stream-json sidecar.
+//! Claude Code bridge: drive one or more `claude` CLI stream-json sidecars.
 //!
 //! Validated empirically against claude 2.1.183: one process started with
 //! `claude --print --input-format stream-json --output-format stream-json
@@ -11,18 +11,22 @@
 //!                                                {"type":"tool_use",...}]}}
 //!   - {"type":"result","subtype":"success","is_error":false,"result":<final>}
 //!
-//! Contract to the webview: `claude_submit` writes one user message and (only on a
-//! successful write) emits `claude://thinking{active:true}`; each `result` emits
-//! `claude://turn-end` with the final reply (spoken with mood by the frontend);
-//! the child dying emits `claude://ready{active:false}`. A monotonic generation
-//! makes a superseded reader (after restart/stop) inert so it cannot emit onto a
-//! newer session.
+//! Each session is keyed by a string id (the same per-id pattern as `terminal.rs`),
+//! so the conductor can run several in parallel. Events are namespaced
+//! `claude://{id}/<kind>` (`thinking`, `turn-end`, `activity`, `diff`, `usage`,
+//! `ready`). `claude_start` returns the new id; `claude_submit`/`claude_stop`/
+//! `claude_cancel` take it. A per-session monotonic generation makes a superseded
+//! reader (after a restart/cancel) inert so it cannot emit onto a newer session.
+//!
+//! Phase 5 keeps a single active session (the frontend tears the old one down
+//! before starting a new one); the map is the seam the multi-session conductor
+//! plugs into in Phase 8.
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex as StdMutex;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -31,13 +35,26 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
+/// Source of unique session ids (the webview never has to invent one).
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+/// Globally monotonic generation stamp. Each launch takes the next value; a
+/// reader only emits while its session still carries that exact stamp, so a
+/// restarted/cancelled session's late events can never touch a newer one.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// One live Claude Code session: the `claude` child + its stdin, plus the
+/// generation its reader was launched with and the cwd (kept so `claude_cancel`
+/// can relaunch in place).
+struct ClaudeSession {
+    stdin: ChildStdin,
+    child: Child,
+    generation: u64,
+    cwd: String,
+}
+
 #[derive(Default)]
 pub struct ClaudeState {
-    stdin: AsyncMutex<Option<ChildStdin>>,
-    child: StdMutex<Option<Child>>,
-    /// Bumped on every start/stop; a reader task only emits while it matches, so a
-    /// superseded session's late events can never touch a newer one.
-    generation: AtomicU64,
+    sessions: AsyncMutex<HashMap<String, ClaudeSession>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -140,13 +157,11 @@ const DISALLOWED_TOOLS: &[&str] = &[
     "Bash(rm:-rf /*)",
 ];
 
-/// Start (or restart) the Claude sidecar with `dir` as its working directory (a
-/// project dir is REQUIRED - no silent home-wide default with bypassPermissions).
+/// Start a new Claude sidecar with `dir` as its working directory (a project dir
+/// is REQUIRED - no silent home-wide default with bypassPermissions). Returns the
+/// new session id; the webview subscribes to `claude://{id}/*` with it.
 #[tauri::command]
-pub async fn claude_start(app: AppHandle, dir: Option<String>) -> Result<(), String> {
-    // Tear down any prior session first (also bumps the generation).
-    let _ = claude_stop(app.clone()).await;
-
+pub async fn claude_start(app: AppHandle, dir: Option<String>) -> Result<String, String> {
     let cwd = match dir {
         Some(d) if !d.trim().is_empty() => PathBuf::from(d.trim()),
         _ => return Err("a project directory is required".into()),
@@ -154,73 +169,16 @@ pub async fn claude_start(app: AppHandle, dir: Option<String>) -> Result<(), Str
     if !cwd.is_dir() {
         return Err(format!("not a directory: {}", cwd.display()));
     }
-
-    let fallback = app
-        .path()
-        .home_dir()
-        .ok()
-        .map(|h| h.join(".local").join("bin").join("claude.exe"));
-    let mut child = spawn_claude(&cwd, fallback.as_deref())?;
-
-    let stdin = child.stdin.take().ok_or("claude stdin unavailable")?;
-    let stdout = child.stdout.take().ok_or("claude stdout unavailable")?;
-    let stderr = child.stderr.take();
-
-    let state = app.state::<ClaudeState>();
-    // This session's generation; the reader uses it to ignore superseded events.
-    let my_gen = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    *state.stdin.lock().await = Some(stdin);
-    *state
-        .child
-        .lock()
-        .map_err(|_| "claude child lock poisoned")? = Some(child);
-
-    // Drain stderr to the log so a crash/auth failure is diagnosable (it would
-    // otherwise be silent).
-    if let Some(stderr) = stderr {
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                log::warn!("[claude stderr] {line}");
-            }
-        });
-    }
-
-    // Read NDJSON events off stdout and translate them to claude://* events.
-    let app2 = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if !is_current(&app2, my_gen) {
-                return; // superseded by a restart/stop; stay silent
-            }
-            handle_event(&app2, &line);
-        }
-        // stdout closed => the child ended. Report the disconnect only if we are
-        // still the current session.
-        if is_current(&app2, my_gen) {
-            *app2.state::<ClaudeState>().stdin.lock().await = None;
-            let _ = app2.emit("claude://thinking", Active { active: false });
-            let _ = app2.emit(
-                "claude://turn-end",
-                TurnEnd { text: "Claude session ended.".into(), is_error: true },
-            );
-            let _ = app2.emit("claude://ready", Ready { active: false, cwd: String::new() });
-        }
-    });
-
-    let _ = app.emit(
-        "claude://ready",
-        Ready { active: true, cwd: cwd.display().to_string() },
-    );
-    Ok(())
+    let id = format!("claude-{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+    launch_session(&app, id.clone(), cwd).await?;
+    Ok(id)
 }
 
-/// Send one user message into the live session. Flags Thinking ONLY after the
-/// write succeeds, so a dead/never-started session returns Err without stranding
-/// the avatar in Thinking.
+/// Send one user message into a live session. Flags Thinking ONLY after the write
+/// succeeds, so a dead/never-started session returns Err without stranding the
+/// avatar in Thinking.
 #[tauri::command]
-pub async fn claude_submit(app: AppHandle, text: String) -> Result<(), String> {
+pub async fn claude_submit(app: AppHandle, id: String, text: String) -> Result<(), String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(());
@@ -233,41 +191,149 @@ pub async fn claude_submit(app: AppHandle, text: String) -> Result<(), String> {
 
     {
         let state = app.state::<ClaudeState>();
-        let mut guard = state.stdin.lock().await;
-        let stdin = guard.as_mut().ok_or("claude session not started")?;
-        stdin
+        let mut sessions = state.sessions.lock().await;
+        let session = sessions.get_mut(&id).ok_or("claude session not started")?;
+        session
+            .stdin
             .write_all(line.as_bytes())
             .await
             .map_err(|e| format!("claude write: {e}"))?;
-        stdin
+        session
+            .stdin
             .flush()
             .await
             .map_err(|e| format!("claude flush: {e}"))?;
     }
-    let _ = app.emit("claude://thinking", Active { active: true });
+    let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: true });
     Ok(())
 }
 
-/// End the session: invalidate the reader, close stdin (EOF), and kill the child.
+/// Cancel the in-flight turn without removing the session from the UI: kill the
+/// current child (its reader goes inert via the generation bump in `launch_session`)
+/// and relaunch a fresh `claude` in the same cwd under the SAME id. The turn is
+/// truly abandoned; conversation context resets. This is the deterministic fallback
+/// the barge-in / Escape path needs in Phase 7; if a soft stream-json interrupt that
+/// preserves context proves available there, it can replace the relaunch.
 #[tauri::command]
-pub async fn claude_stop(app: AppHandle) -> Result<(), String> {
+pub async fn claude_cancel(app: AppHandle, id: String) -> Result<(), String> {
+    let cwd = {
+        let state = app.state::<ClaudeState>();
+        let mut sessions = state.sessions.lock().await;
+        match sessions.remove(&id) {
+            Some(mut s) => {
+                s.generation = 0; // belt-and-suspenders: also removed from the map
+                let _ = s.child.start_kill();
+                PathBuf::from(s.cwd)
+            }
+            None => return Err("claude session not started".into()),
+        }
+    };
+    let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: false });
+    launch_session(&app, id, cwd).await
+}
+
+/// End a session (`id`), or every session when `id` is None (used on dispose):
+/// invalidate the reader, close stdin (EOF), and kill the child.
+#[tauri::command]
+pub async fn claude_stop(app: AppHandle, id: Option<String>) -> Result<(), String> {
     let state = app.state::<ClaudeState>();
-    state.generation.fetch_add(1, Ordering::SeqCst); // invalidate the current reader
-    *state.stdin.lock().await = None; // closing stdin sends EOF
-    if let Some(mut child) = state
-        .child
-        .lock()
-        .map_err(|_| "claude child lock poisoned")?
-        .take()
-    {
-        let _ = child.start_kill();
+    let mut sessions = state.sessions.lock().await;
+    let ids: Vec<String> = match id {
+        Some(id) => vec![id],
+        None => sessions.keys().cloned().collect(),
+    };
+    for id in ids {
+        if let Some(mut session) = sessions.remove(&id) {
+            session.generation = 0; // invalidate the reader (removal already does)
+            let _ = session.stdin.shutdown().await; // EOF
+            let _ = session.child.start_kill();
+            let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: false });
+        }
     }
-    let _ = app.emit("claude://thinking", Active { active: false });
     Ok(())
 }
 
-fn is_current(app: &AppHandle, my_gen: u64) -> bool {
-    app.state::<ClaudeState>().generation.load(Ordering::SeqCst) == my_gen
+/// Spawn a `claude` child in `cwd`, register it under `id`, and start its stdout
+/// reader. Shared by `claude_start` (new id) and `claude_cancel` (same id).
+async fn launch_session(app: &AppHandle, id: String, cwd: PathBuf) -> Result<(), String> {
+    let fallback = app
+        .path()
+        .home_dir()
+        .ok()
+        .map(|h| h.join(".local").join("bin").join("claude.exe"));
+    let mut child = spawn_claude(&cwd, fallback.as_deref())?;
+
+    let stdin = child.stdin.take().ok_or("claude stdin unavailable")?;
+    let stdout = child.stdout.take().ok_or("claude stdout unavailable")?;
+    let stderr = child.stderr.take();
+
+    // This session's generation; the reader uses it to ignore superseded events.
+    let my_gen = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let cwd_str = cwd.display().to_string();
+    {
+        let state = app.state::<ClaudeState>();
+        state.sessions.lock().await.insert(
+            id.clone(),
+            ClaudeSession {
+                stdin,
+                child,
+                generation: my_gen,
+                cwd: cwd_str.clone(),
+            },
+        );
+    }
+
+    // Drain stderr to the log so a crash/auth failure is diagnosable (it would
+    // otherwise be silent).
+    if let Some(stderr) = stderr {
+        let id_err = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[claude {id_err} stderr] {line}");
+            }
+        });
+    }
+
+    // Read NDJSON events off stdout and translate them to claude://{id}/* events.
+    let app2 = app.clone();
+    let id2 = id.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !is_current(&app2, &id2, my_gen).await {
+                return; // superseded by a restart/cancel/stop; stay silent
+            }
+            handle_event(&app2, &id2, &line);
+        }
+        // stdout closed => the child ended. Report the disconnect only if we are
+        // still the current session, and remove ourselves from the map.
+        if is_current(&app2, &id2, my_gen).await {
+            app2.state::<ClaudeState>().sessions.lock().await.remove(&id2);
+            let _ = app2.emit(&format!("claude://{id2}/thinking"), Active { active: false });
+            let _ = app2.emit(
+                &format!("claude://{id2}/turn-end"),
+                TurnEnd { text: "Claude session ended.".into(), is_error: true },
+            );
+            let _ = app2.emit(
+                &format!("claude://{id2}/ready"),
+                Ready { active: false, cwd: String::new() },
+            );
+        }
+    });
+
+    let _ = app.emit(
+        &format!("claude://{id}/ready"),
+        Ready { active: true, cwd: cwd_str },
+    );
+    Ok(())
+}
+
+/// True while the session `id` still exists and carries the `my_gen` stamp.
+async fn is_current(app: &AppHandle, id: &str, my_gen: u64) -> bool {
+    let state = app.state::<ClaudeState>();
+    let sessions = state.sessions.lock().await;
+    sessions.get(id).map_or(false, |s| s.generation == my_gen)
 }
 
 /// Spawn `claude` from PATH, falling back to the native-installer location so a
@@ -305,12 +371,12 @@ fn spawn_claude(cwd: &Path, fallback: Option<&Path>) -> Result<Child, String> {
     }
 }
 
-/// Tolerant parse of one stdout NDJSON line. `result` drives the four-state UI
-/// (turn-end) plus the telemetry (usage); `assistant` feeds the activity HUD from
-/// its tool_use entries. Unknown events keep the current Thinking state. On a
-/// normal reply we do NOT emit a standalone thinking:false: turn-end -> speak()
-/// drives the Thinking->Speaking handoff with no intervening idle frame.
-fn handle_event(app: &AppHandle, line: &str) {
+/// Tolerant parse of one stdout NDJSON line for session `id`. `result` drives the
+/// four-state UI (turn-end) plus the telemetry (usage); `assistant` feeds the
+/// activity HUD from its tool_use entries. Unknown events keep the current Thinking
+/// state. On a normal reply we do NOT emit a standalone thinking:false: turn-end ->
+/// speak() drives the Thinking->Speaking handoff with no intervening idle frame.
+fn handle_event(app: &AppHandle, id: &str, line: &str) {
     let line = line.trim();
     if line.is_empty() {
         return;
@@ -320,9 +386,9 @@ fn handle_event(app: &AppHandle, line: &str) {
         Err(_) => return,
     };
     match v.get("type").and_then(Value::as_str) {
-        Some("assistant") => emit_tool_activity(app, &v),
+        Some("assistant") => emit_tool_activity(app, id, &v),
         Some("result") => {
-            emit_usage(app, &v);
+            emit_usage(app, id, &v);
             let text = v
                 .get("result")
                 .and_then(Value::as_str)
@@ -332,17 +398,17 @@ fn handle_event(app: &AppHandle, line: &str) {
                 || v.get("subtype").and_then(Value::as_str) == Some("error");
             if text.trim().is_empty() || is_error {
                 // No spoken reply will take over Thinking; clear it explicitly.
-                let _ = app.emit("claude://thinking", Active { active: false });
+                let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: false });
             }
-            let _ = app.emit("claude://turn-end", TurnEnd { text, is_error });
+            let _ = app.emit(&format!("claude://{id}/turn-end"), TurnEnd { text, is_error });
         }
         _ => {}
     }
 }
 
-/// Emit `claude://activity` for each `tool_use` in an assistant message so the HUD
-/// can show what Claude is doing ("Read foo.ts", "Bash npm test", ...).
-fn emit_tool_activity(app: &AppHandle, v: &Value) {
+/// Emit `claude://{id}/activity` for each `tool_use` in an assistant message so the
+/// HUD can show what Claude is doing ("Read foo.ts", "Bash npm test", ...).
+fn emit_tool_activity(app: &AppHandle, id: &str, v: &Value) {
     let content = match v
         .get("message")
         .and_then(|m| m.get("content"))
@@ -361,13 +427,16 @@ fn emit_tool_activity(app: &AppHandle, v: &Value) {
             .unwrap_or("tool")
             .to_string();
         let target = tool_target(&name, item.get("input"));
-        let _ = app.emit("claude://activity", Activity { name: name.clone(), target });
-        emit_tool_diff(app, &name, item.get("input"));
+        let _ = app.emit(
+            &format!("claude://{id}/activity"),
+            Activity { name: name.clone(), target },
+        );
+        emit_tool_diff(app, id, &name, item.get("input"));
     }
 }
 
-/// Emit `claude://diff` for Edit/Write tools so the diff viewer panel can show changes.
-fn emit_tool_diff(app: &AppHandle, name: &str, input: Option<&Value>) {
+/// Emit `claude://{id}/diff` for Edit/Write tools so the diff viewer panel can show changes.
+fn emit_tool_diff(app: &AppHandle, id: &str, name: &str, input: Option<&Value>) {
     let input = match input {
         Some(i) => i,
         None => return,
@@ -397,7 +466,7 @@ fn emit_tool_diff(app: &AppHandle, name: &str, input: Option<&Value>) {
         },
         _ => return,
     };
-    let _ = app.emit("claude://diff", diff);
+    let _ = app.emit(&format!("claude://{id}/diff"), diff);
 }
 
 /// Pick a human-meaningful target from a tool's input (path, command, pattern, ...).
@@ -446,8 +515,8 @@ fn shorten(s: &str, max: usize) -> String {
     format!("\u{2026}{tail}")
 }
 
-/// Emit `claude://usage` from a `result` event's token counts + cost.
-fn emit_usage(app: &AppHandle, v: &Value) {
+/// Emit `claude://{id}/usage` from a `result` event's token counts + cost.
+fn emit_usage(app: &AppHandle, id: &str, v: &Value) {
     let usage = v.get("usage");
     let get = |k: &str| -> u64 {
         usage
@@ -456,7 +525,7 @@ fn emit_usage(app: &AppHandle, v: &Value) {
             .unwrap_or(0)
     };
     let _ = app.emit(
-        "claude://usage",
+        &format!("claude://{id}/usage"),
         Usage {
             input_tokens: get("input_tokens"),
             output_tokens: get("output_tokens"),
