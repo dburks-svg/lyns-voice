@@ -64,6 +64,12 @@ async function bootstrap(): Promise<void> {
       addSessionLine('action', a.target ? `${a.name}  ${a.target}` : a.name);
     },
     onStream: (line) => addSessionLine(line.kind, line.text),
+    onConductorSpawn: (d) => {
+      void sessionMgr.spawn({ name: d.name, dir: d.dir, task: d.task });
+    },
+    onConductorTell: (d) => {
+      sessionMgr.tell(d.name, d.message);
+    },
     onDiff: (d) => addDiffEntry({
       tool: d.tool,
       filePath: d.file_path,

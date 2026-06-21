@@ -5,8 +5,8 @@
  * voice-driven session (the orb/mic/TTS). Background sessions are watched and typed
  * into via their panels, and announce (a callback) when a turn ends.
  *
- * Deliberately out of scope here (a collaborative, hands-on build): switching the
- * single voice channel between sessions, and Q auto-spawning sessions via tools.
+ * The conductor (the primary voice session) can also spawn and steer workers itself via
+ * markers in its reply (`spawn`/`tell`), wired through `onConductorSpawn`/`onConductorTell`.
  *
  * Deps are injected so the manager is unit-testable without Tauri.
  */
@@ -25,6 +25,7 @@ export interface SessionManagerDeps {
 }
 
 interface ManagedSession {
+  id: string;
   panel: SessionPanel;
   unlisteners: Array<() => void>;
   name: string;
@@ -41,13 +42,26 @@ export class SessionManager {
     return this.sessions.size;
   }
 
-  /** Spawn a new background session. Returns its id, or null if no project dir is set. */
-  async spawn(): Promise<string | null> {
+  /**
+   * Spawn a worker session. With no opts it uses the UI defaults + an auto-name (the Alt+N
+   * path); the conductor passes a name/dir/task (the `<<spawn:...>>` path). Returns the id,
+   * or null if no project dir is available.
+   */
+  async spawn(opts?: {
+    name?: string;
+    dir?: string;
+    model?: string;
+    effort?: string;
+    task?: string;
+  }): Promise<string | null> {
     const d = this.deps.defaults();
-    if (!d.dir) return null;
-    const args: Record<string, unknown> = { dir: d.dir };
-    if (d.model) args.model = d.model;
-    if (d.effort) args.effort = d.effort;
+    const dir = opts?.dir?.trim() || d.dir;
+    if (!dir) return null;
+    const args: Record<string, unknown> = { dir };
+    const model = opts?.model ?? d.model;
+    const effort = opts?.effort ?? d.effort;
+    if (model) args.model = model;
+    if (effort) args.effort = effort;
 
     let id: string;
     try {
@@ -56,7 +70,7 @@ export class SessionManager {
       return null;
     }
 
-    const name = `Session ${String.fromCharCode(65 + (this.counter % 26))}`;
+    const name = opts?.name?.trim() || `Session ${String.fromCharCode(65 + (this.counter % 26))}`;
     this.counter += 1;
     const offset = 100 + (this.sessions.size * 28) % 220;
     const panel = new SessionPanel({
@@ -89,8 +103,28 @@ export class SessionManager {
       this.deps.onDone?.(name, p.is_error);
     });
 
-    this.sessions.set(id, { panel, unlisteners, name });
+    this.sessions.set(id, { id, panel, unlisteners, name });
+
+    // The conductor can hand a worker its opening task at spawn (claude_start resolves only
+    // once the child's stdin is ready, so this submit lands).
+    if (opts?.task) {
+      panel.addLine('user', opts.task);
+      void this.deps.invoke('claude_submit', { id, text: opts.task }).catch(() => undefined);
+    }
     return id;
+  }
+
+  /** Relay a message to the worker with the given name (case-insensitive). Returns found. */
+  tell(name: string, message: string): boolean {
+    const target = name.trim().toLowerCase();
+    for (const [id, s] of this.sessions) {
+      if (s.name.toLowerCase() === target) {
+        s.panel.addLine('user', message);
+        void this.deps.invoke('claude_submit', { id, text: message }).catch(() => undefined);
+        return true;
+      }
+    }
+    return false;
   }
 
   close(id: string): void {

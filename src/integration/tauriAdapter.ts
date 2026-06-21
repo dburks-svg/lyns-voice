@@ -29,6 +29,7 @@ import { THEME_PALETTES, type ThemeName } from '../config/config';
 import { prefersReducedMotion, safeSetText } from './dom';
 import { deriveState, type VoiceSignals } from './signals';
 import { createConductorVoice } from './conductorVoice';
+import { parseConductor } from './conductorProtocol';
 
 /** Args accepted by `invoke`: a JSON record, or a raw binary body (audio frames). */
 type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
@@ -241,6 +242,12 @@ export interface TauriAdapterOptions {
   onDiff?: (diff: ClaudeDiff) => void;
   /** A live session stream line (assistant narration / command output) for the panel. */
   onStream?: (line: { kind: string; text: string }) => void;
+  /** Conductor directive: spawn a worker session (from a `<<spawn:...>>` marker in Q's reply). */
+  onConductorSpawn?: (d: { name: string; dir: string; task: string }) => void;
+  /** Conductor directive: relay a message to a named worker (`<<tell:...>>`). */
+  onConductorTell?: (d: { name: string; message: string }) => void;
+  /** Conductor directive: Q proposes splitting work; render an approve card (`<<propose:...>>`). */
+  onConductorPropose?: (d: { summary: string }) => void;
   /** Per-turn token usage + cost (HUD telemetry). */
   onUsage?: (usage: ClaudeUsage) => void;
   /** Live mic frequency bands per audio frame (HUD waveform). */
@@ -684,9 +691,24 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         sync();
         return;
       }
+      // The primary session is the conductor: pull any orchestration markers out of the
+      // reply (spawn/tell/propose) and act on them; they are stripped before speaking.
+      const conducted = parseConductor(text);
+      for (const d of conducted.directives) {
+        if (d.kind === 'spawn') options.onConductorSpawn?.({ name: d.name, dir: d.dir, task: d.task });
+        else if (d.kind === 'tell') options.onConductorTell?.({ name: d.name, message: d.message });
+        else options.onConductorPropose?.({ summary: d.summary });
+      }
+      const speakable = conducted.stripped.trim();
+      if (!speakable) {
+        // Q only emitted directives (nothing to say): clear Thinking so the orb settles.
+        signals.pendingResponse = false;
+        sync();
+        return;
+      }
       // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
       // Speaking, so there is no idle flicker between Thinking and the spoken reply.
-      void speak(text);
+      void speak(speakable);
       if (!windowFocused && notifyOnTurnEnd) {
         void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
           sendNotification({ title: 'Q', body: 'Response ready.' });
@@ -765,7 +787,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       void invoke('claude_stop', { id: prev }).catch(() => undefined);
     }
     try {
-      const args: Record<string, unknown> = {};
+      const args: Record<string, unknown> = { conductor: true }; // the primary runs the floor
       if (lastDir) args.dir = lastDir;
       if (lastModel) args.model = lastModel;
       if (lastEffort) args.effort = lastEffort;

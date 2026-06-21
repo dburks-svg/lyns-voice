@@ -66,6 +66,30 @@ describe('SessionManager (background multi-session)', () => {
     mgr.closeAll();
   });
 
+  it('spawns with a conductor-supplied dir and submits the opening task', async () => {
+    const { mgr, calls } = setup();
+    const id = await mgr.spawn({ name: 'frontend', dir: 'C:/web', task: 'build it' });
+    expect(id).toBe('claude-9');
+    expect(calls).toContainEqual({ cmd: 'claude_start', args: { dir: 'C:/web', model: 'opus', effort: 'high' } });
+    expect(calls).toContainEqual({ cmd: 'claude_submit', args: { id: 'claude-9', text: 'build it' } });
+    mgr.closeAll();
+  });
+
+  it('tell() relays a message to the worker by name (case-insensitive)', async () => {
+    const { mgr, calls } = setup();
+    await mgr.spawn({ name: 'backend', dir: 'C:/api', task: 'serve' });
+    expect(mgr.tell('Backend', 'add rate limiting')).toBe(true);
+    expect(calls).toContainEqual({ cmd: 'claude_submit', args: { id: 'claude-9', text: 'add rate limiting' } });
+    mgr.closeAll();
+  });
+
+  it('tell() returns false for an unknown worker', async () => {
+    const { mgr } = setup();
+    await mgr.spawn({ name: 'backend', dir: 'C:/api', task: 'serve' });
+    expect(mgr.tell('frontend', 'hi')).toBe(false);
+    mgr.closeAll();
+  });
+
   it('close stops the session by id and tears down its panel', async () => {
     const { mgr, calls, layer } = setup();
     await mgr.spawn();

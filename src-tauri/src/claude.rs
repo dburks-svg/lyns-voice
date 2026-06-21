@@ -51,6 +51,9 @@ struct ClaudeSession {
     cwd: String,
     model: Option<String>,
     effort: Option<String>,
+    /// The primary "conductor" session gets the orchestration system prompt; kept so an
+    /// in-place relaunch (claude_cancel) preserves it.
+    conductor: bool,
 }
 
 #[derive(Default)]
@@ -176,6 +179,7 @@ pub async fn claude_start(
     dir: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    conductor: Option<bool>,
 ) -> Result<String, String> {
     let cwd = match dir {
         Some(d) if !d.trim().is_empty() => PathBuf::from(d.trim()),
@@ -185,7 +189,15 @@ pub async fn claude_start(
         return Err(format!("not a directory: {}", cwd.display()));
     }
     let id = format!("claude-{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
-    launch_session(&app, id.clone(), cwd, blank_to_none(model), blank_to_none(effort)).await?;
+    launch_session(
+        &app,
+        id.clone(),
+        cwd,
+        blank_to_none(model),
+        blank_to_none(effort),
+        conductor.unwrap_or(false),
+    )
+    .await?;
     Ok(id)
 }
 
@@ -236,20 +248,20 @@ pub async fn claude_submit(app: AppHandle, id: String, text: String) -> Result<(
 /// preserves context proves available there, it can replace the relaunch.
 #[tauri::command]
 pub async fn claude_cancel(app: AppHandle, id: String) -> Result<(), String> {
-    let (cwd, model, effort) = {
+    let (cwd, model, effort, conductor) = {
         let state = app.state::<ClaudeState>();
         let mut sessions = state.sessions.lock().await;
         match sessions.remove(&id) {
             Some(mut s) => {
                 s.generation = 0; // belt-and-suspenders: also removed from the map
                 let _ = s.child.start_kill();
-                (PathBuf::from(s.cwd), s.model, s.effort)
+                (PathBuf::from(s.cwd), s.model, s.effort, s.conductor)
             }
             None => return Err("claude session not started".into()),
         }
     };
     let _ = app.emit(&format!("claude://{id}/thinking"), Active { active: false });
-    launch_session(&app, id, cwd, model, effort).await
+    launch_session(&app, id, cwd, model, effort, conductor).await
 }
 
 /// End a session (`id`), or every session when `id` is None (used on dispose):
@@ -281,13 +293,20 @@ async fn launch_session(
     cwd: PathBuf,
     model: Option<String>,
     effort: Option<String>,
+    conductor: bool,
 ) -> Result<(), String> {
     let fallback = app
         .path()
         .home_dir()
         .ok()
         .map(|h| h.join(".local").join("bin").join("claude.exe"));
-    let mut child = spawn_claude(&cwd, fallback.as_deref(), model.as_deref(), effort.as_deref())?;
+    let mut child = spawn_claude(
+        &cwd,
+        fallback.as_deref(),
+        model.as_deref(),
+        effort.as_deref(),
+        conductor,
+    )?;
 
     let stdin = child.stdin.take().ok_or("claude stdin unavailable")?;
     let stdout = child.stdout.take().ok_or("claude stdout unavailable")?;
@@ -307,6 +326,7 @@ async fn launch_session(
                 cwd: cwd_str.clone(),
                 model,
                 effort,
+                conductor,
             },
         );
     }
@@ -379,11 +399,27 @@ async fn is_current(app: &AppHandle, id: &str, my_gen: u64) -> bool {
 
 /// Spawn `claude` from PATH, falling back to the native-installer location so a
 /// GUI launch with a thinner PATH still finds it.
+/// Appended to the PRIMARY session's system prompt so Q can run the floor: it teaches the
+/// orchestration markers (the app parses + strips them exactly like `<<mood:...>>`). Workers
+/// never receive this, so only the conductor emits markers and there is no recursive spawning.
+const CONDUCTOR_PROMPT: &str = "\
+You are Q, a voice conductor coordinating several Claude Code sessions for the user. You can \
+spawn and steer worker sessions by emitting markers in your reply; the app parses and strips \
+them before anything is spoken, exactly like the mood markers. To spawn a worker: \
+<<spawn:NAME|DIR|TASK>> where NAME is a short label (letters, digits, spaces, hyphens), DIR is \
+an existing directory path, and TASK is its opening instruction. To send a follow-up to a \
+worker: <<tell:NAME|MESSAGE>>. To propose splitting work into parallel sessions, emit \
+<<propose:SUMMARY>> and wait; the user approves or declines, and you proceed only on approval. \
+Only parallelize work with clear separation (frontend vs backend, separate folders); one \
+coherent task stays in one session. Always propose before fanning out, since each session \
+costs separately. Put each marker on its own line, never inside a code block.";
+
 fn spawn_claude(
     cwd: &Path,
     fallback: Option<&Path>,
     model: Option<&str>,
     effort: Option<&str>,
+    conductor: bool,
 ) -> Result<Child, String> {
     let build = |program: &OsStr| {
         let mut c = Command::new(program);
@@ -399,6 +435,12 @@ fn spawn_claude(
         }
         if let Some(e) = effort {
             c.arg("--effort").arg(e);
+        }
+        // The primary session runs the floor: teach it the orchestration markers so it can
+        // spawn and steer workers by voice. Workers never get this, so only the conductor
+        // emits markers and there is no recursive spawning.
+        if conductor {
+            c.arg("--append-system-prompt").arg(CONDUCTOR_PROMPT);
         }
         c.current_dir(cwd)
             .stdin(Stdio::piped())

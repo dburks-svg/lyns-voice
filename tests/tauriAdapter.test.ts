@@ -216,7 +216,7 @@ describe('createWatchdog', () => {
 });
 
 describe('attachTauri (Claude session binding)', () => {
-  function setup() {
+  function setup(extra?: Partial<Parameters<typeof attachTauri>[0]>) {
     const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
     const invoke = (async (cmd: string, args?: Record<string, unknown>) => {
       calls.push({ cmd, args });
@@ -249,7 +249,7 @@ describe('attachTauri (Claude session binding)', () => {
 
     const root = document.createElement('div');
     document.body.appendChild(root);
-    const handle = attachTauri({ root, view: window, invoke, listen, avatarFactory });
+    const handle = attachTauri({ root, view: window, invoke, listen, avatarFactory, ...extra });
     return { handle, calls, handlers };
   }
 
@@ -298,12 +298,26 @@ describe('attachTauri (Claude session binding)', () => {
     handle.dispose();
   });
 
-  it('passes per-session model and effort to claude_start', async () => {
+  it('routes conductor markers in a primary turn-end to the spawn/tell callbacks', async () => {
+    const onConductorSpawn = vi.fn();
+    const onConductorTell = vi.fn();
+    const { handle, handlers } = setup({ onConductorSpawn, onConductorTell });
+    await handle.startClaude('C:/proj');
+    handlers['claude://claude-1/turn-end']({
+      text: 'On it. <<spawn:frontend|C:/web|build the form>> <<tell:backend|add tests>>',
+      is_error: false,
+    });
+    expect(onConductorSpawn).toHaveBeenCalledWith({ name: 'frontend', dir: 'C:/web', task: 'build the form' });
+    expect(onConductorTell).toHaveBeenCalledWith({ name: 'backend', message: 'add tests' });
+    handle.dispose();
+  });
+
+  it('passes per-session model and effort to claude_start, and marks it the conductor', async () => {
     const { handle, calls } = setup();
     await handle.startClaude('C:/proj', 'opus', 'high');
     expect(calls).toContainEqual({
       cmd: 'claude_start',
-      args: { dir: 'C:/proj', model: 'opus', effort: 'high' },
+      args: { conductor: true, dir: 'C:/proj', model: 'opus', effort: 'high' },
     });
     handle.dispose();
   });
