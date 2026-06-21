@@ -80,6 +80,15 @@ struct Activity {
     target: String,
 }
 
+/// One line of a session's live stream (what scrolls by in a real `claude`
+/// terminal): `narration` is the assistant's prose; `output` is command output
+/// (added once the tool_result shape is verified). Drives the per-session panel.
+#[derive(Clone, Serialize)]
+struct StreamLine {
+    kind: &'static str,
+    text: String,
+}
+
 /// File diff from an Edit or Write tool (drives the diff viewer panel).
 #[derive(Clone, Serialize)]
 struct ToolDiff {
@@ -398,7 +407,7 @@ fn handle_event(app: &AppHandle, id: &str, line: &str) {
         Err(_) => return,
     };
     match v.get("type").and_then(Value::as_str) {
-        Some("assistant") => emit_tool_activity(app, id, &v),
+        Some("assistant") => emit_assistant(app, id, &v),
         Some("result") => {
             emit_usage(app, id, &v);
             let text = v
@@ -418,9 +427,10 @@ fn handle_event(app: &AppHandle, id: &str, line: &str) {
     }
 }
 
-/// Emit `claude://{id}/activity` for each `tool_use` in an assistant message so the
-/// HUD can show what Claude is doing ("Read foo.ts", "Bash npm test", ...).
-fn emit_tool_activity(app: &AppHandle, id: &str, v: &Value) {
+/// Translate one `assistant` message: stream its narration text (previously
+/// discarded - it is the prose that scrolls by in a real `claude` terminal) and
+/// emit each tool it invokes (the HUD activity line "Read foo.ts" plus any diff).
+fn emit_assistant(app: &AppHandle, id: &str, v: &Value) {
     let content = match v
         .get("message")
         .and_then(|m| m.get("content"))
@@ -430,20 +440,33 @@ fn emit_tool_activity(app: &AppHandle, id: &str, v: &Value) {
         None => return,
     };
     for item in content {
-        if item.get("type").and_then(Value::as_str) != Some("tool_use") {
-            continue;
+        match item.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        let _ = app.emit(
+                            &format!("claude://{id}/stream"),
+                            StreamLine { kind: "narration", text: text.to_string() },
+                        );
+                    }
+                }
+            }
+            Some("tool_use") => {
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tool")
+                    .to_string();
+                let target = tool_target(&name, item.get("input"));
+                let _ = app.emit(
+                    &format!("claude://{id}/activity"),
+                    Activity { name: name.clone(), target },
+                );
+                emit_tool_diff(app, id, &name, item.get("input"));
+            }
+            _ => {}
         }
-        let name = item
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("tool")
-            .to_string();
-        let target = tool_target(&name, item.get("input"));
-        let _ = app.emit(
-            &format!("claude://{id}/activity"),
-            Activity { name: name.clone(), target },
-        );
-        emit_tool_diff(app, id, &name, item.get("input"));
     }
 }
 
