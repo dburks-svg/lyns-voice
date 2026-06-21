@@ -421,13 +421,22 @@ fn spawn_claude(
     effort: Option<&str>,
     conductor: bool,
 ) -> Result<Child, String> {
+    // The conductor (primary) also gets Wisdom, Claude's own local epistemics MCP (all its
+    // tools; local stdio, so the blast radius is its own store). Workers are intentionally
+    // left out for now: each claude child spawns its OWN wisdom server, and ChromaDB is not
+    // built for several processes writing one store at once, so fanning Wisdom across the
+    // whole fleet awaits a concurrency check. Moving it to ALLOWED_TOOLS later is the flip.
+    let mut allowed: Vec<&str> = ALLOWED_TOOLS.to_vec();
+    if conductor {
+        allowed.push("mcp__wisdom");
+    }
     let build = |program: &OsStr| {
         let mut c = Command::new(program);
         c.args(BASE_ARGS);
         // `--allowedTools <tools...>` / `--disallowedTools <tools...>` are variadic;
         // each value is a separate argv entry (no shell, so the parens/globs in the
         // patterns are passed literally to claude, not expanded by a shell).
-        c.arg("--allowedTools").args(ALLOWED_TOOLS);
+        c.arg("--allowedTools").args(&allowed);
         c.arg("--disallowedTools").args(DISALLOWED_TOOLS);
         // Per-session model/effort, set at spawn; absent => claude's own default.
         if let Some(m) = model {

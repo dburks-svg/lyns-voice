@@ -30,6 +30,12 @@ that directory is the intended blast radius (defense-in-depth, not an OS sandbox
 backend keeps sessions in a per-id map, so multiple sessions are each scoped to their own
 directory. `claude` still runs real edits and commands within the allowlist, in that dir.
 
+The **conductor** (primary) session is additionally allowed `mcp__wisdom`, a **local** MCP
+server (Claude's own epistemics tool under `D:\claudes-wisdom`: stdio + SQLite/ChromaDB, no
+network), so its blast radius is its own store. Worker sessions are not given it for now, since
+each `claude` child spawns its own wisdom subprocess and the store is not built for concurrent
+multi-process writes; fanning it across the fleet awaits a concurrency check.
+
 ## Network / CSP
 
 A strict Content-Security-Policy (`src-tauri/tauri.conf.json`) allows no remote origins.
