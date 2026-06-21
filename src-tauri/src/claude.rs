@@ -5,11 +5,10 @@
 //! --verbose` reads newline-delimited user messages from stdin and KEEPS the
 //! conversation context across messages (multi-turn confirmed). It emits NDJSON
 //! events on stdout:
-//!   - {"type":"system","subtype":"init","session_id":...}
-//!   - {"type":"rate_limit_event",...}                        (ignored)
-//!   - {"type":"assistant","message":{"content":[{"type":"text","text":...},
-//!                                                {"type":"tool_use",...}]}}
-//!   - {"type":"result","subtype":"success","is_error":false,"result":<final>}
+//! - {"type":"system","subtype":"init","session_id":...}
+//! - {"type":"rate_limit_event",...} (ignored)
+//! - {"type":"assistant","message":{"content":[{text...},{tool_use...}]}}
+//! - {"type":"result","subtype":"success","is_error":false,"result":<final>}
 //!
 //! Each session is keyed by a string id (the same per-id pattern as `terminal.rs`),
 //! so the conductor can run several in parallel. Events are namespaced
@@ -346,7 +345,7 @@ async fn launch_session(app: &AppHandle, id: String, cwd: PathBuf) -> Result<(),
 async fn is_current(app: &AppHandle, id: &str, my_gen: u64) -> bool {
     let state = app.state::<ClaudeState>();
     let sessions = state.sessions.lock().await;
-    sessions.get(id).map_or(false, |s| s.generation == my_gen)
+    sessions.get(id).is_some_and(|s| s.generation == my_gen)
 }
 
 /// Spawn `claude` from PATH, falling back to the native-installer location so a

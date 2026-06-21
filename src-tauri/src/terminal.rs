@@ -173,5 +173,5 @@ pub async fn terminal_resize(
 async fn is_session_alive(app: &AppHandle, id: &str, gen: u64) -> bool {
     let state = app.state::<TerminalState>();
     let sessions = state.sessions.lock().await;
-    sessions.get(id).map_or(false, |s| s.generation == gen)
+    sessions.get(id).is_some_and(|s| s.generation == gen)
 }

@@ -133,7 +133,7 @@ pub async fn transcript_cleanup(app: tauri::AppHandle) -> Result<u32, String> {
         files.push((path, modified));
     }
 
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     let mut removed = 0u32;
     for (i, (path, modified)) in files.iter().enumerate() {

@@ -226,8 +226,7 @@ impl SttSession {
     fn new(hangover: Arc<AtomicU32>) -> Self {
         use webrtc_vad::{SampleRate, Vad, VadMode};
         let vad = Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality);
-        let mut ep = Endpointer::default();
-        ep.hangover = hangover;
+        let ep = Endpointer { hangover, ..Endpointer::default() };
         Self { vad, carry: Vec::with_capacity(FRAME * 4), ep }
     }
 
@@ -329,11 +328,10 @@ pub async fn stt_start(app: AppHandle) -> Result<(), String> {
     })
     .await
     .map_err(|e| format!("stt load join: {e}"))?
-    .map_err(|e| {
+    .inspect_err(|_| {
         // Surface the failure so the webview can reset its "Downloading…" caption
         // instead of hanging there forever.
         let _ = app.emit("stt://model", ModelStatus { state: "error", downloaded: 0, total: 0 });
-        e
     })?;
 
     // Spawn (or replace) the worker that owns the VAD + endpointing state. The VAD
@@ -437,6 +435,36 @@ fn model_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join(MODEL_FILE))
 }
 
+/// What a download attempt should do given the server's response to its (maybe
+/// Range) request. Pure so the 200/206/error branching is unit-tested.
+#[derive(Debug)]
+enum ResumePlan {
+    /// Resume the existing partial; the finished file will be `total` bytes.
+    Resume { total: u64 },
+    /// (Re)download from scratch; the finished file will be `total` bytes.
+    Restart { total: u64 },
+    /// A non-success, non-partial status: abort this attempt.
+    HttpError,
+}
+
+/// Resume only when we actually had a partial AND the server honored the Range with
+/// 206 Partial Content; a 200 (Range ignored) or no partial restarts clean; any other
+/// non-success status aborts the attempt.
+fn resume_plan(
+    partial: u64,
+    is_partial_content: bool,
+    is_success: bool,
+    content_length: u64,
+) -> ResumePlan {
+    if partial > 0 && is_partial_content {
+        ResumePlan::Resume { total: partial + content_length }
+    } else if is_success {
+        ResumePlan::Restart { total: content_length }
+    } else {
+        ResumePlan::HttpError
+    }
+}
+
 fn download_model(app: &AppHandle, dest: &Path) -> Result<(), String> {
     let tmp = dest.with_extension("part");
     const MAX_ATTEMPTS: u32 = 4;
@@ -489,9 +517,15 @@ fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> 
     let resp = req.send().map_err(|e| format!("model download: {e}"))?;
     let status = resp.status();
 
-    // Open the destination + seed the hasher, branching on whether the resume took.
-    let (mut file, mut hasher, total) =
-        if resume_from > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT {
+    // Decide resume vs restart vs abort from the status (pure; unit-tested).
+    let plan = resume_plan(
+        resume_from,
+        status == reqwest::StatusCode::PARTIAL_CONTENT,
+        status.is_success(),
+        resp.content_length().unwrap_or(0),
+    );
+    let (mut file, mut hasher, total) = match plan {
+        ResumePlan::Resume { total } => {
             // 206: append to the partial and re-hash the bytes already on disk so the
             // final checksum covers the whole file.
             let existing = std::fs::read(tmp).map_err(|e| format!("read partial: {e}"))?;
@@ -502,18 +536,17 @@ fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> 
                 .append(true)
                 .open(tmp)
                 .map_err(|e| format!("open partial: {e}"))?;
-            let remaining = resp.content_length().unwrap_or(0);
-            (file, hasher, resume_from + remaining)
-        } else {
-            // No partial, or the server ignored Range (200) / returned an error: restart.
-            if !status.is_success() {
-                return Err(format!("model download HTTP {status}"));
-            }
+            (file, hasher, total)
+        }
+        ResumePlan::Restart { total } => {
+            // No partial, or the server ignored Range (200): (re)start from scratch.
             resume_from = 0;
             let file =
                 std::fs::File::create(tmp).map_err(|e| format!("create temp model: {e}"))?;
-            (file, Sha256::new(), resp.content_length().unwrap_or(0))
-        };
+            (file, Sha256::new(), total)
+        }
+        ResumePlan::HttpError => return Err(format!("model download HTTP {status}")),
+    };
 
     // Sanity cap: the known model is ~142 MB. Reject an absurd body (hijacked URL)
     // before it can fill the disk, even though the checksum would reject it later.
@@ -675,5 +708,35 @@ mod tests {
         eprintln!("infer_ms = {infer_ms}");
         eprintln!("text     = {text}");
         assert!(!text.is_empty(), "expected a non-empty transcript");
+    }
+
+    #[test]
+    fn resume_plan_resumes_on_206_with_a_partial() {
+        match resume_plan(100, true, true, 50) {
+            ResumePlan::Resume { total } => {
+                assert_eq!(total, 150); // partial + remaining
+            }
+            other => panic!("expected resume, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resume_plan_restarts_when_range_ignored_or_absent() {
+        // 200 OK despite a partial (server ignored Range) -> clean restart.
+        assert!(matches!(
+            resume_plan(100, false, true, 140),
+            ResumePlan::Restart { total: 140 }
+        ));
+        // No partial at all -> a normal full download.
+        assert!(matches!(
+            resume_plan(0, false, true, 140),
+            ResumePlan::Restart { total: 140 }
+        ));
+    }
+
+    #[test]
+    fn resume_plan_aborts_on_a_failed_status() {
+        assert!(matches!(resume_plan(0, false, false, 0), ResumePlan::HttpError));
+        assert!(matches!(resume_plan(100, false, false, 0), ResumePlan::HttpError));
     }
 }
