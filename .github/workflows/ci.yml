@@ -26,3 +26,28 @@ jobs:
       - run: npm run build
       - run: npx playwright install chromium --with-deps
       - run: npm run test:e2e
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      # Dependency + secret audits. The dep audits are informational (advisories the
+      # owner can triage); the secret scan is blocking (secrets must never land).
+      - name: npm audit (high and up)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+        continue-on-error: true
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
