@@ -312,6 +312,18 @@ describe('attachTauri (Claude session binding)', () => {
     handle.dispose();
   });
 
+  it('dispatches a marker seen in the live stream once, not again at turn-end', async () => {
+    const onConductorSpawn = vi.fn();
+    const { handle, handlers } = setup({ onConductorSpawn });
+    await handle.startClaude('C:/proj');
+    const marker = 'Spinning up. <<spawn:frontend|C:/web|build the form>>';
+    handlers['claude://claude-1/stream']({ kind: 'narration', text: marker });
+    handlers['claude://claude-1/turn-end']({ text: marker, is_error: false });
+    expect(onConductorSpawn).toHaveBeenCalledTimes(1);
+    expect(onConductorSpawn).toHaveBeenCalledWith({ name: 'frontend', dir: 'C:/web', task: 'build the form' });
+    handle.dispose();
+  });
+
   it('passes per-session model and effort to claude_start, and marks it the conductor', async () => {
     const { handle, calls } = setup();
     await handle.startClaude('C:/proj', 'opus', 'high');

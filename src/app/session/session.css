@@ -38,6 +38,19 @@
   pointer-events: none;
 }
 
+/* The 8 resize handles (created by SessionPanel, wired by attachDragResize) must sit
+   just INSIDE the edges: the panel's clip-path (the corner notch) clips hit-testing,
+   so handles protruding outside the box (the shared default) never receive pointer
+   events. Insetting them to the edge restores resize from every side and corner. */
+.session-window .rh-n  { top: 0;    left: 8px; right: 8px; height: 6px; }
+.session-window .rh-s  { bottom: 0; left: 8px; right: 8px; height: 6px; }
+.session-window .rh-e  { right: 0;  top: 8px; bottom: 8px; width: 6px; }
+.session-window .rh-w  { left: 0;   top: 8px; bottom: 8px; width: 6px; }
+.session-window .rh-ne { top: 0;    right: 0;  width: 14px; height: 14px; }
+.session-window .rh-nw { top: 0;    left: 0;   width: 14px; height: 14px; }
+.session-window .rh-se { bottom: 0; right: 0;  width: 14px; height: 14px; }
+.session-window .rh-sw { bottom: 0; left: 0;   width: 14px; height: 14px; }
+
 .session-window > * {
   position: relative;
   z-index: 1;

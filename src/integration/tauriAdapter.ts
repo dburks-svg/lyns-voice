@@ -671,6 +671,22 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         claudeUnlisteners.push(un);
       });
     };
+    // The conductor's spawn/tell/propose markers can appear in the live narration OR the
+    // final reply. Dispatch each once per turn (dedup by content), so a marker caught while
+    // streaming is not re-fired at turn-end. The set is cleared when the turn ends.
+    const dispatchedDirectives = new Set<string>();
+    const dispatchConductor = (raw: string): string => {
+      const conducted = parseConductor(raw);
+      for (const d of conducted.directives) {
+        const key = JSON.stringify(d);
+        if (dispatchedDirectives.has(key)) continue;
+        dispatchedDirectives.add(key);
+        if (d.kind === 'spawn') options.onConductorSpawn?.({ name: d.name, dir: d.dir, task: d.task });
+        else if (d.kind === 'tell') options.onConductorTell?.({ name: d.name, message: d.message });
+        else options.onConductorPropose?.({ summary: d.summary });
+      }
+      return conducted.stripped;
+    };
     wire<{ active: boolean }>('thinking', (p) => {
       signals.pendingResponse = p.active;
       sync();
@@ -678,7 +694,16 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     // Telemetry: each tool Claude runs this turn, and per-turn token usage + cost.
     wire<ClaudeActivity>('activity', (p) => options.onActivity?.(p));
     wire<ClaudeDiff>('diff', (p) => options.onDiff?.(p));
-    wire<{ kind: string; text: string }>('stream', (p) => options.onStream?.(p));
+    wire<{ kind: string; text: string }>('stream', (p) => {
+      // Narration may carry markers as the conductor talks through the plan; act on them
+      // live (and strip them from the panel) so a worker spawns the moment he calls for it,
+      // not only at turn-end.
+      if (p.kind === 'narration' && p.text.includes('<<')) {
+        options.onStream?.({ kind: p.kind, text: dispatchConductor(p.text) });
+      } else {
+        options.onStream?.(p);
+      }
+    });
     wire<ClaudeUsage>('usage', (p) => options.onUsage?.(p));
     wire<{ text: string; is_error: boolean }>('turn-end', (p) => {
       const text = (p.text ?? '').trim();
@@ -688,18 +713,14 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         if (text && p.is_error) {
           safeSetText(options.caption ?? null, text);
         }
+        dispatchedDirectives.clear();
         sync();
         return;
       }
-      // The primary session is the conductor: pull any orchestration markers out of the
-      // reply (spawn/tell/propose) and act on them; they are stripped before speaking.
-      const conducted = parseConductor(text);
-      for (const d of conducted.directives) {
-        if (d.kind === 'spawn') options.onConductorSpawn?.({ name: d.name, dir: d.dir, task: d.task });
-        else if (d.kind === 'tell') options.onConductorTell?.({ name: d.name, message: d.message });
-        else options.onConductorPropose?.({ summary: d.summary });
-      }
-      const speakable = conducted.stripped.trim();
+      // The primary session is the conductor: act on any orchestration markers in the final
+      // reply not already dispatched while streaming; they are stripped before speaking.
+      const speakable = dispatchConductor(text).trim();
+      dispatchedDirectives.clear(); // turn over; reset the per-turn dedup
       if (!speakable) {
         // Q only emitted directives (nothing to say): clear Thinking so the orb settles.
         signals.pendingResponse = false;

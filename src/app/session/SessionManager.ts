@@ -76,7 +76,9 @@ export class SessionManager {
 
     const name = opts?.name?.trim() || `Session ${String.fromCharCode(65 + (this.counter % 26))}`;
     this.counter += 1;
-    const offset = 100 + (this.sessions.size * 28) % 220;
+    // Cascade new windows far enough that each is clearly its own panel, not stacked on
+    // the last (the conductor can open several at once).
+    const offset = 80 + ((this.sessions.size * 44) % 308);
     const panel = new SessionPanel({
       x: offset,
       y: offset,
