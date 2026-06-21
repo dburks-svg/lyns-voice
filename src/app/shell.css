@@ -666,6 +666,13 @@ body[data-state="speaking"] {
   text-shadow: 0 0 16px var(--accent-soft);
   pointer-events: none;
   z-index: 6;
+  /* Bound to a 3-line subtitle so a long reply or error can't balloon up over
+     the orb. The full text still lives in the transcript panel. WebView2 is
+     Chromium, so -webkit-line-clamp is supported. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .status {
   position: fixed;
