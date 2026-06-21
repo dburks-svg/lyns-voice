@@ -307,9 +307,22 @@ async fn launch_session(app: &AppHandle, id: String, cwd: PathBuf) -> Result<(),
             handle_event(&app2, &id2, &line);
         }
         // stdout closed => the child ended. Report the disconnect only if we are
-        // still the current session, and remove ourselves from the map.
+        // still the current session, and remove ourselves from the map. Reap the
+        // child to log a crash (its exit status) vs a clean exit, and defensively
+        // kill it in the rare case stdout closed while the process is still alive.
         if is_current(&app2, &id2, my_gen).await {
-            app2.state::<ClaudeState>().sessions.lock().await.remove(&id2);
+            if let Some(mut session) =
+                app2.state::<ClaudeState>().sessions.lock().await.remove(&id2)
+            {
+                match session.child.try_wait() {
+                    Ok(Some(status)) => log::warn!("[claude {id2}] sidecar exited: {status}"),
+                    Ok(None) => {
+                        log::warn!("[claude {id2}] stdout closed but sidecar still alive; killing")
+                    }
+                    Err(e) => log::warn!("[claude {id2}] could not reap sidecar: {e}"),
+                }
+                let _ = session.child.start_kill();
+            }
             let _ = app2.emit(&format!("claude://{id2}/thinking"), Active { active: false });
             let _ = app2.emit(
                 &format!("claude://{id2}/turn-end"),
