@@ -27,7 +27,7 @@ import type { AvatarOptions } from './Avatar';
 import type { PaletteConfig } from '../config/config';
 import type { DeformationParams } from './deformation';
 
-type Activity = 'idle' | 'listening' | 'thinking' | 'speaking';
+export type Activity = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 /**
  * Orb state targets for our four activity states (energy is overridden live).
@@ -90,7 +90,7 @@ const IMMERSIVE_PRESET: QSizePreset = {
 };
 
 /** params.speed (constant per state) -> activity. Thresholds sit between the values. */
-function activityFromSpeed(speed: number): Activity {
+export function activityFromSpeed(speed: number): Activity {
   if (speed < 0.7) return 'idle';
   if (speed < 1.05) return 'listening';
   if (speed < 1.6) return 'speaking';
@@ -138,7 +138,7 @@ export function themeToPalette(palette: PaletteConfig): QPaletteValues {
  * (primary), `core` the deeper tone (secondary); the hot center burns toward
  * white, and the reduced-motion CSS fallback gradient is derived to match.
  */
-function paletteFromColors(rim: number, core: number): QPaletteValues {
+export function paletteFromColors(rim: number, core: number): QPaletteValues {
   const hot = lighten(rim, 0.78);
   return {
     core: hot,
