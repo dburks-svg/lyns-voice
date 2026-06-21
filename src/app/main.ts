@@ -133,6 +133,15 @@ async function bootstrap(): Promise<void> {
   // Phase 3: connect a Claude Code session in a project dir. Once connected,
   // spoken utterances are sent to Claude and the reply is spoken back with mood.
   const claudeDir = document.getElementById('claude-dir') as HTMLInputElement | null;
+  const browseBtn = document.getElementById('claude-browse');
+  browseBtn?.addEventListener('click', () => {
+    void import('@tauri-apps/plugin-dialog')
+      .then(async ({ open }) => {
+        const dir = await open({ directory: true, multiple: false });
+        if (typeof dir === 'string' && dir && claudeDir) claudeDir.value = dir;
+      })
+      .catch((e) => console.warn('[browse]', e));
+  });
   const claudeButton = document.getElementById('claude-btn');
   claudeButton?.addEventListener('click', () => {
     if (handle.isClaudeConnected()) {
