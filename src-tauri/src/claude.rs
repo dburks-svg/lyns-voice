@@ -81,8 +81,8 @@ struct Activity {
 }
 
 /// One line of a session's live stream (what scrolls by in a real `claude`
-/// terminal): `narration` is the assistant's prose; `output` is command output
-/// (added once the tool_result shape is verified). Drives the per-session panel.
+/// terminal): `narration` is the assistant's prose, `output` is command output
+/// (stdout/stderr from the tools it runs). Drives the per-session panel.
 #[derive(Clone, Serialize)]
 struct StreamLine {
     kind: &'static str,
@@ -408,6 +408,7 @@ fn handle_event(app: &AppHandle, id: &str, line: &str) {
     };
     match v.get("type").and_then(Value::as_str) {
         Some("assistant") => emit_assistant(app, id, &v),
+        Some("user") => emit_tool_results(app, id, &v),
         Some("result") => {
             emit_usage(app, id, &v);
             let text = v
@@ -467,6 +468,50 @@ fn emit_assistant(app: &AppHandle, id: &str, v: &Value) {
             }
             _ => {}
         }
+    }
+}
+
+/// Extract capped command output (stdout + stderr) from a `user` tool-result message,
+/// or None for tool results that are not command output (Read/Grep/...), so the stream
+/// is not flooded with file contents. Keys on `tool_use_result.stdout`, which Claude
+/// Code emits only for command-style tools. Pure; unit-tested against the live shape.
+fn command_output(v: &Value) -> Option<String> {
+    let r = v.get("tool_use_result")?;
+    let stdout = r.get("stdout").and_then(Value::as_str)?; // only commands carry stdout
+    let mut text = String::new();
+    let stdout = stdout.trim();
+    if !stdout.is_empty() {
+        text.push_str(stdout);
+    }
+    let stderr = r.get("stderr").and_then(Value::as_str).unwrap_or("").trim();
+    if !stderr.is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(stderr);
+    }
+    if text.is_empty() {
+        None
+    } else {
+        Some(cap_output(&text))
+    }
+}
+
+/// Cap command output, keeping the (usually most informative) tail.
+fn cap_output(s: &str) -> String {
+    const MAX: usize = 4000;
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= MAX {
+        return s.to_string();
+    }
+    let tail: String = chars[chars.len() - MAX..].iter().collect();
+    format!("[\u{2026}output truncated\u{2026}]\n{tail}")
+}
+
+/// Emit a session's command output (stdout/stderr) from a `user` tool-result message.
+fn emit_tool_results(app: &AppHandle, id: &str, v: &Value) {
+    if let Some(text) = command_output(v) {
+        let _ = app.emit(&format!("claude://{id}/stream"), StreamLine { kind: "output", text });
     }
 }
 
@@ -573,7 +618,7 @@ fn emit_usage(app: &AppHandle, id: &str, v: &Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{shorten, tool_target};
+    use super::{cap_output, command_output, shorten, tool_target};
     use serde_json::json;
 
     #[test]
@@ -609,5 +654,37 @@ mod tests {
         assert!(out.chars().count() <= 52);
         assert!(out.starts_with('\u{2026}'));
         assert!(out.ends_with("xxxx"));
+    }
+
+    #[test]
+    fn command_output_extracts_stdout_then_stderr() {
+        // The live shape: a `user` message with a structured tool_use_result.
+        let v = json!({
+            "type": "user",
+            "tool_use_result": { "stdout": "hello\n", "stderr": "", "interrupted": false }
+        });
+        assert_eq!(command_output(&v).as_deref(), Some("hello"));
+        let both = json!({ "tool_use_result": { "stdout": "out", "stderr": "boom" } });
+        assert_eq!(command_output(&both).as_deref(), Some("out\nboom"));
+    }
+
+    #[test]
+    fn command_output_skips_non_command_tool_results() {
+        // A Read/Grep result (no stdout) is skipped so file dumps do not flood the stream.
+        let read = json!({
+            "type": "user",
+            "message": { "content": [{ "type": "tool_result", "content": "file contents" }] }
+        });
+        assert_eq!(command_output(&read), None);
+        assert_eq!(command_output(&json!({ "type": "user" })), None);
+    }
+
+    #[test]
+    fn cap_output_keeps_the_tail_under_the_cap() {
+        let long = "x".repeat(5000);
+        let out = cap_output(&long);
+        assert!(out.contains("truncated"));
+        assert!(out.ends_with("xxxx"));
+        assert!(out.chars().count() <= 4000 + 40);
     }
 }
