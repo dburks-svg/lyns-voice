@@ -260,6 +260,9 @@ export interface TauriAdapterOptions {
   notifyOnTurnEnd?: boolean;
   /** Override the Thinking watchdog timeout in ms (default 120000). */
   watchdogMs?: number;
+  /** Voice barge-in: a spoken utterance during a reply cuts it off. Getter so the
+   *  settings toggle takes effect live (default treated as off when absent). */
+  bargeIn?: () => boolean;
 }
 
 export interface TauriHandle {
@@ -281,6 +284,9 @@ export interface TauriHandle {
   cancelClaude(): void;
   /** Submit typed text to the live session (typed = voice fallback, same path). */
   submitText(text: string): void;
+  /** Interrupt an in-flight turn (barge-in): stop speaking or cancel thinking. Returns
+   *  whether anything was interrupted (so Escape can fall through to closing a panel). */
+  interrupt(): boolean;
   /** Whether the Claude sidecar is connected. */
   isClaudeConnected(): boolean;
   /** Manual state override (debug cluster today; direct control later). */
@@ -522,12 +528,34 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     });
   }
 
+  // Barge-in: cut off an in-flight turn. While speaking, just stop talking (the turn
+  // already completed). While thinking, abandon the turn via cancelClaude. Returns
+  // whether anything was interrupted, so Escape can fall through to closing a panel.
+  function interrupt(): boolean {
+    if (signals.speaking) {
+      speechQueue.length = 0;
+      mediaTts.stop();
+      signals.speaking = false;
+      sync();
+      return true;
+    }
+    if (signals.pendingResponse) {
+      cancelClaude();
+      return true;
+    }
+    return false;
+  }
+
   addListener<{ text: string }>('stt://final', (p) => {
     const text = (p.text ?? '').trim();
     if (!text) {
       return;
     }
     if (claudeConnected) {
+      // Voice barge-in (opt-in): if Q is mid-reply, cut him off and take the floor.
+      if (options.bargeIn?.() && signals.speaking) {
+        interrupt();
+      }
       submitToClaude(text);
     } else {
       safeSetText(options.caption ?? null, text);
@@ -763,6 +791,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       const t = (text ?? '').trim();
       if (t && claudeConnected) submitToClaude(t);
     },
+    interrupt,
     isClaudeConnected: () => claudeConnected,
     cancelReconnect,
     setState: (state) => controller.setState(state),

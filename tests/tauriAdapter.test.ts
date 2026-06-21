@@ -307,4 +307,23 @@ describe('attachTauri (Claude session binding)', () => {
     });
     handle.dispose();
   });
+
+  it('interrupt() cancels an in-flight thinking turn and returns true (barge-in)', async () => {
+    const { handle, handlers, calls } = setup();
+    await handle.startClaude('C:/proj');
+    handlers['claude://claude-1/thinking']({ active: true });
+    expect(state()).toBe('thinking');
+    expect(handle.interrupt()).toBe(true);
+    expect(calls).toContainEqual({ cmd: 'claude_cancel', args: { id: 'claude-1' } });
+    expect(state()).toBe('idle');
+    handle.dispose();
+  });
+
+  it('interrupt() is a no-op (returns false) when nothing is in flight', async () => {
+    const { handle, calls } = setup();
+    await handle.startClaude('C:/proj');
+    expect(handle.interrupt()).toBe(false);
+    expect(calls.some((c) => c.cmd === 'claude_cancel')).toBe(false);
+    handle.dispose();
+  });
 });

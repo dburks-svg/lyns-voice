@@ -24,6 +24,8 @@ export interface AppSettings {
   snapThreshold: number;
   autoReconnect: boolean;
   notifyOnTurnEnd: boolean;
+  /** Voice barge-in: a spoken utterance during a reply cuts it off (default off). */
+  bargeIn: boolean;
   /** claude --model for new sessions (empty = claude's default). */
   model: string;
   /** claude --effort for new sessions (empty = claude's default). */
@@ -40,6 +42,7 @@ const DEFAULTS: AppSettings = {
   snapThreshold: 12,
   autoReconnect: true,
   notifyOnTurnEnd: true,
+  bargeIn: false,
   model: '',
   effort: '',
 };

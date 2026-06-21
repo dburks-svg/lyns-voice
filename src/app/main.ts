@@ -79,6 +79,7 @@ async function bootstrap(): Promise<void> {
     micDeviceId: () => settings.micDeviceId,
     autoReconnect: settings.autoReconnect,
     notifyOnTurnEnd: settings.notifyOnTurnEnd,
+    bargeIn: () => settings.bargeIn,
     onReconnectStatus: (status) => {
       const cap = document.getElementById('caption');
       if (!cap) return;
@@ -510,6 +511,7 @@ async function bootstrap(): Promise<void> {
     toggleMic,
     toggleMini: () => void miniMode.toggle(),
     closeFocused: () => {
+      if (handle.interrupt()) return; // barge-in: cut off an in-flight turn first
       if (settingsDrawer && !settingsDrawer.hidden) {
         settingsBtn?.click();
         return;
@@ -667,6 +669,13 @@ function wireSettings(settings: AppSettings): void {
   });
   effortSelect?.addEventListener('change', () => {
     settings.effort = effortSelect.value;
+    saveSettings(settings);
+  });
+
+  const bargeCheck = document.getElementById('set-bargein') as HTMLInputElement | null;
+  if (bargeCheck) bargeCheck.checked = settings.bargeIn;
+  bargeCheck?.addEventListener('change', () => {
+    settings.bargeIn = bargeCheck.checked;
     saveSettings(settings);
   });
 }
