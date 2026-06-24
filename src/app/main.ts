@@ -137,13 +137,21 @@ async function bootstrap(): Promise<void> {
     }
     micFab?.classList.toggle('active', listening);
   };
+  // Guards a re-entrant start while one is still in flight. isListening() only flips
+  // true once capture.start() resolves (mic permission + worklet spin-up), so without
+  // this a fast second tap (button or the keyboard shortcut, both routed here) would
+  // fire a second startListening instead of being a clean no-op.
+  let micStarting = false;
   const toggleMic = (): void => {
     if (handle.isListening()) {
       handle.stopListening();
       reflectListening(false);
       return;
     }
+    if (micStarting) return;
+    micStarting = true;
     void handle.startListening().then((ok) => {
+      micStarting = false;
       if (ok) {
         reflectListening(true);
       } else if (label) {

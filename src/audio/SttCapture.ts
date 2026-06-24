@@ -52,6 +52,7 @@ export class SttCapture {
   private rafId = 0;
   private active = false;
   private startToken = 0;
+  private starting: Promise<boolean> | null = null;
 
   constructor(options: SttCaptureOptions) {
     this.opts = options;
@@ -63,11 +64,26 @@ export class SttCapture {
     return this.active;
   }
 
-  /** Request the mic and begin capture. MUST be called from a user gesture. */
-  async start(): Promise<boolean> {
+  /**
+   * Request the mic and begin capture. MUST be called from a user gesture.
+   * Concurrent calls share one in-flight attempt: a second `start()` made before
+   * the first resolves (e.g. a double-tap during the mic-permission/worklet window)
+   * returns the same promise instead of opening a second `getUserMedia` stream.
+   */
+  start(): Promise<boolean> {
     if (this.active) {
-      return true;
+      return Promise.resolve(true);
     }
+    if (this.starting) {
+      return this.starting;
+    }
+    this.starting = this.startInner().finally(() => {
+      this.starting = null;
+    });
+    return this.starting;
+  }
+
+  private async startInner(): Promise<boolean> {
     const token = ++this.startToken;
     const getUserMedia =
       this.opts.getUserMedia ??
