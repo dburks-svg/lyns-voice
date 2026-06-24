@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'dist-demo/**',
+      'src-tauri/target/**',
       'vendor/**',
       'src/avatar/jarvisOrb/**',
       'node_modules/**',

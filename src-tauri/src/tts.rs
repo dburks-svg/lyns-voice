@@ -208,12 +208,87 @@ unsafe fn synth_inner(text: &str, rate: i32, pitch: i32, voice_name: Option<&str
     Ok(build_wav(&pcm, CHANNELS, SAMPLE_RATE, BITS))
 }
 
+/// Registry categories SAPI exposes installed voices under. SAPI5 (`Speech\Voices`)
+/// holds the classic "Desktop" voices; `Speech_OneCore\Voices` holds the more natural
+/// modern voices (and male voices like Mark) the SAPI5 category never lists. ISpVoice
+/// can both enumerate and bind tokens from either, so we scan both - SAPI5 first so its
+/// names keep their historical order, then any OneCore extras.
 #[cfg(windows)]
-fn list_voices() -> Result<Vec<String>, String> {
+const VOICE_CATEGORIES: [&str; 2] = [
+    "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices",
+    "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices",
+];
+
+/// A registry category path as a null-terminated UTF-16 string for SAPI's `SetId`.
+#[cfg(windows)]
+fn category_id_utf16(path: &str) -> Vec<u16> {
+    path.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Remove case-insensitive duplicate names, preserving first-seen order. A voice that
+/// somehow appears in both categories is listed once (the SAPI5 occurrence wins).
+#[cfg(any(windows, test))]
+fn dedupe_preserving_order(names: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(names.len());
+    for name in names {
+        if seen.insert(name.to_lowercase()) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// Collect the friendly names of every voice token in one SAPI registry category.
+/// A category that cannot be opened (e.g. `Speech_OneCore` absent on older Windows)
+/// yields an empty list rather than failing, so a missing category never breaks the
+/// whole enumeration. Must run inside an initialized COM apartment.
+#[cfg(windows)]
+unsafe fn names_in_category(category_path: &str) -> Vec<String> {
     use windows::core::PCWSTR;
     use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
+
+    let mut names = Vec::new();
+    let cat: ISpObjectTokenCategory =
+        match CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL) {
+            Ok(c) => c,
+            Err(_) => return names,
+        };
+    let cat_id = category_id_utf16(category_path);
+    if cat.SetId(PCWSTR(cat_id.as_ptr()), false).is_err() {
+        return names;
+    }
+    let tokens = match cat.EnumTokens(None, None) {
+        Ok(t) => t,
+        Err(_) => return names,
+    };
+    let mut count: u32 = 0;
+    if tokens.GetCount(&mut count).is_err() {
+        return names;
+    }
+    for i in 0..count {
+        if let Ok(token) = tokens.Item(i) {
+            // The token's friendly name is its OWN default value (an ISpObjectToken is
+            // an ISpDataKey); read it directly. The earlier OpenKey(null) opened an
+            // empty-named subkey, which failed on every token and silently yielded an
+            // empty list (an empty voice dropdown + selection always falling to default).
+            if let Ok(pw) = token.GetStringValue(PCWSTR::null()) {
+                if let Ok(name) = pw.to_string() {
+                    if !name.is_empty() {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
+#[cfg(windows)]
+fn list_voices() -> Result<Vec<String>, String> {
     use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 
     struct ComGuard;
     impl Drop for ComGuard { fn drop(&mut self) { unsafe { CoUninitialize() }; } }
@@ -225,27 +300,13 @@ fn list_voices() -> Result<Vec<String>, String> {
             Some(ComGuard)
         };
 
-        let cat: ISpObjectTokenCategory = CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL)
-            .map_err(|e| format!("create category: {e}"))?;
-        let cat_id = voices_category_id();
-        cat.SetId(PCWSTR(cat_id.as_ptr()), false)
-            .map_err(|e| format!("SetId: {e}"))?;
-
-        let tokens = cat.EnumTokens(None, None).map_err(|e| format!("EnumTokens: {e}"))?;
-        let mut count: u32 = 0;
-        tokens.GetCount(&mut count).map_err(|e| format!("GetCount: {e}"))?;
-
+        // One apartment, both categories. Each category degrades to empty on error,
+        // so a system missing OneCore still returns its SAPI5 voices.
         let mut names = Vec::new();
-        for i in 0..count {
-            if let Ok(token) = tokens.Item(i) {
-                if let Ok(pw) = token.OpenKey(PCWSTR::null()).and_then(|attrs| attrs.GetStringValue(PCWSTR::null())) {
-                    if let Ok(name) = pw.to_string() {
-                        if !name.is_empty() { names.push(name); }
-                    }
-                }
-            }
+        for path in VOICE_CATEGORIES {
+            names.extend(names_in_category(path));
         }
-        Ok(names)
+        Ok(dedupe_preserving_order(names))
     }
 }
 
@@ -255,36 +316,42 @@ unsafe fn select_voice_by_name(voice: &windows::Win32::Media::Speech::ISpVoice, 
     use windows::Win32::Media::Speech::{ISpObjectTokenCategory, SpObjectTokenCategory};
     use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 
-    let cat: ISpObjectTokenCategory = CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL)
-        .map_err(|e| format!("create category: {e}"))?;
-    let cat_id = voices_category_id();
-    cat.SetId(PCWSTR(cat_id.as_ptr()), false)
-        .map_err(|e| format!("SetId: {e}"))?;
-
-    let tokens = cat.EnumTokens(None, None).map_err(|e| format!("EnumTokens: {e}"))?;
-    let mut count: u32 = 0;
-    tokens.GetCount(&mut count).map_err(|e| format!("GetCount: {e}"))?;
-
-    for i in 0..count {
-        if let Ok(token) = tokens.Item(i) {
-            if let Ok(pw) = token.OpenKey(PCWSTR::null()).and_then(|attrs| attrs.GetStringValue(PCWSTR::null())) {
-                if pw.to_string().unwrap_or_default() == name {
-                    voice.SetVoice(&token).map_err(|e| format!("SetVoice: {e}"))?;
-                    return Ok(());
+    // Search both categories in the same order `list_voices` presents them. A category
+    // that fails to open is skipped (continue), matching the tolerant enumeration; only
+    // a real SetVoice failure on a matched token is surfaced. Not found stays a silent
+    // Ok so an uninstalled saved voice just falls back to the system default.
+    for category_path in VOICE_CATEGORIES {
+        let cat: ISpObjectTokenCategory =
+            match CoCreateInstance(&SpObjectTokenCategory, None, CLSCTX_ALL) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+        let cat_id = category_id_utf16(category_path);
+        if cat.SetId(PCWSTR(cat_id.as_ptr()), false).is_err() {
+            continue;
+        }
+        let tokens = match cat.EnumTokens(None, None) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let mut count: u32 = 0;
+        if tokens.GetCount(&mut count).is_err() {
+            continue;
+        }
+        for i in 0..count {
+            if let Ok(token) = tokens.Item(i) {
+                // Match on the token's own default value (its friendly name); see the
+                // note in names_in_category on why OpenKey(null) was wrong here.
+                if let Ok(pw) = token.GetStringValue(PCWSTR::null()) {
+                    if pw.to_string().unwrap_or_default() == name {
+                        voice.SetVoice(&token).map_err(|e| format!("SetVoice: {e}"))?;
+                        return Ok(());
+                    }
                 }
             }
         }
     }
     Ok(())
-}
-
-/// SAPI voices category registry path as a null-terminated UTF-16 string.
-#[cfg(windows)]
-fn voices_category_id() -> Vec<u16> {
-    "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices"
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect()
 }
 
 #[cfg(not(windows))]
@@ -299,7 +366,33 @@ fn synth_to_wav(_text: &str, _rate: i32, _pitch: i32, _voice_name: Option<&str>)
 
 #[cfg(test)]
 mod tests {
-    use super::build_wav;
+    use super::{build_wav, dedupe_preserving_order};
+
+    #[test]
+    fn dedupe_keeps_first_seen_order_and_drops_case_insensitive_dups() {
+        let input = vec![
+            "Microsoft David Desktop".to_string(),
+            "Microsoft Zira Desktop".to_string(),
+            "Microsoft David".to_string(), // OneCore "David" is distinct from "David Desktop"
+            "microsoft david desktop".to_string(), // case-insensitive dup of the first
+            "Microsoft Mark".to_string(),
+        ];
+        let out = dedupe_preserving_order(input);
+        assert_eq!(
+            out,
+            vec![
+                "Microsoft David Desktop".to_string(),
+                "Microsoft Zira Desktop".to_string(),
+                "Microsoft David".to_string(),
+                "Microsoft Mark".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn dedupe_handles_empty_input() {
+        assert!(dedupe_preserving_order(Vec::new()).is_empty());
+    }
 
     #[test]
     fn wraps_pcm_with_a_44_byte_header() {
@@ -347,6 +440,50 @@ mod tests {
 
         // Drop it where the owner can audition it if they want.
         let out = std::env::temp_dir().join("q-tts-test.wav");
+        std::fs::write(&out, &wav).expect("write wav");
+        eprintln!("wrote {} bytes to {}", wav.len(), out.display());
+    }
+
+    // Diagnostic: print what list_voices() actually returns against the real
+    // registry on this machine. Run with --ignored --nocapture.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "queries the real SAPI registry; run with --ignored --nocapture"]
+    fn lists_real_voices() {
+        let voices = super::list_voices().expect("list_voices should succeed");
+        eprintln!("list_voices returned {} voice(s):", voices.len());
+        for v in &voices {
+            eprintln!("  - {v}");
+        }
+        assert!(!voices.is_empty(), "expected at least one installed voice");
+    }
+
+    // Proves an OneCore voice token both binds to the legacy ISpVoice and produces
+    // real PCM (not just that it lists) - the one technical risk in widening voice
+    // enumeration to the Speech_OneCore category. "Microsoft Mark" is a male voice
+    // that exists only under OneCore on this class of machine. Ignored (drives the
+    // real engine; the named voice must be installed): run with --ignored.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "drives the real SAPI engine and needs an OneCore Mark voice installed; run with --ignored"]
+    fn synthesizes_with_a_onecore_voice() {
+        // Select by the real enumerated friendly name (which carries a language suffix),
+        // so this genuinely exercises selection instead of silently falling back to the
+        // default voice. "Mark" exists only under OneCore on this class of machine.
+        let voices = super::list_voices().expect("list_voices should succeed");
+        let mark = voices
+            .iter()
+            .find(|v| v.to_lowercase().contains("mark"))
+            .unwrap_or_else(|| panic!("no Mark voice installed; have: {voices:?}"));
+        eprintln!("synthesizing with: {mark}");
+
+        let wav = super::synth_to_wav("Testing the OneCore voice, sir.", 0, 0, Some(mark))
+            .expect("synthesis with an OneCore voice should succeed");
+        assert_eq!(&wav[0..4], b"RIFF");
+        let data_len = u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]) as usize;
+        assert!(data_len > 2000, "expected real audio from OneCore voice, only got {data_len} PCM bytes");
+
+        let out = std::env::temp_dir().join("q-tts-onecore-test.wav");
         std::fs::write(&out, &wav).expect("write wav");
         eprintln!("wrote {} bytes to {}", wav.len(), out.display());
     }
