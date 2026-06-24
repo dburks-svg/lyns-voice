@@ -10,7 +10,8 @@ export interface DragResizeOptions {
   minHeight?: number;
   onMoveStart?: () => void;
   onEnd?: () => void;
-  snapThreshold?: number;
+  /** Snap distance in px, or a getter so a live settings change applies without re-attaching. */
+  snapThreshold?: number | (() => number);
   snapTargets?: () => DOMRect[];
 }
 
@@ -51,7 +52,12 @@ export function computeSnap(
 }
 
 export function attachDragResize(opts: DragResizeOptions): () => void {
-  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart, onEnd, snapThreshold = 0, snapTargets } = opts;
+  const { el, dragHandle, minWidth = 300, minHeight = 200, onMoveStart, onEnd, snapTargets } = opts;
+  // Resolve the snap distance lazily so a getter reflects live settings changes.
+  const snapDistance = (): number => {
+    const v = opts.snapThreshold ?? 0;
+    return typeof v === 'function' ? v() : v;
+  };
   const ac = new AbortController();
   const sig = ac.signal;
 
@@ -85,10 +91,11 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
   function onDragUp(): void {
     dragHandle.removeEventListener('pointermove', onDragMove);
-    if (snapThreshold > 0) {
+    const threshold = snapDistance();
+    if (threshold > 0) {
       const rect: SnapRect = { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
       const targets = snapTargets ? snapTargets() : [];
-      const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, snapThreshold);
+      const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, threshold);
       el.style.left = `${snapped.x}px`;
       el.style.top = `${snapped.y}px`;
     }
@@ -142,10 +149,11 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
 
       function onResizeUp(): void {
         h.removeEventListener('pointermove', onResizeMove);
-        if (snapThreshold > 0) {
+        const threshold = snapDistance();
+        if (threshold > 0) {
           const rect: SnapRect = { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
           const targets = snapTargets ? snapTargets() : [];
-          const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, snapThreshold);
+          const snapped = computeSnap(rect, window.innerWidth, window.innerHeight, targets, threshold);
           el.style.left = `${snapped.x}px`;
           el.style.top = `${snapped.y}px`;
         }

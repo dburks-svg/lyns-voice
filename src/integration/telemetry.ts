@@ -174,7 +174,14 @@ export class TelemetryPanels {
 
   /** Fold one turn's usage into the running session totals and re-render. */
   addUsage(u: UsageEvent): void {
-    this.totalIn += Math.max(0, u.input_tokens) + Math.max(0, u.cache_read_tokens);
+    // cache_creation_tokens are billed input tokens (the first-write half of prompt
+    // caching, which dominates the opening turn of a session), so they count toward
+    // "tokens in" alongside fresh input and cache reads. Omitting them silently
+    // under-reported input on every cache-writing turn.
+    this.totalIn +=
+      Math.max(0, u.input_tokens) +
+      Math.max(0, u.cache_read_tokens) +
+      Math.max(0, u.cache_creation_tokens);
     this.totalOut += Math.max(0, u.output_tokens);
     this.totalCost += Math.max(0, u.cost_usd);
     this.turnCount += 1;

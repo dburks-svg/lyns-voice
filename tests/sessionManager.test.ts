@@ -112,4 +112,18 @@ describe('SessionManager (background multi-session)', () => {
     expect(layer.querySelector('.session-window')).toBeNull();
     expect(mgr.count).toBe(0);
   });
+
+  it('closes a worker whose child died (ready active:false)', async () => {
+    const { mgr, handlers, layer, onCountChange } = setup();
+    await mgr.spawn();
+    expect(mgr.count).toBe(1);
+    // A stray active:true must NOT close it.
+    handlers['claude://claude-9/ready']({ active: true });
+    expect(mgr.count).toBe(1);
+    // The child exits -> the panel is torn down and the fleet count decremented.
+    handlers['claude://claude-9/ready']({ active: false });
+    expect(mgr.count).toBe(0);
+    expect(layer.querySelector('.session-window')).toBeNull();
+    expect(onCountChange).toHaveBeenLastCalledWith(0);
+  });
 });

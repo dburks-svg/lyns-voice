@@ -7,7 +7,7 @@ import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { SessionPanel } from './session/SessionPanel';
 import { SessionManager } from './session/SessionManager';
-import { loadSettings, saveSettings, type AppSettings, type PanelLayout } from './settings';
+import { loadSettings, saveSettings, DEFAULT_SETTINGS, type AppSettings, type PanelLayout } from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
 import { showOnboarding } from './onboarding';
@@ -101,8 +101,8 @@ async function bootstrap(): Promise<void> {
       voice: settings.ttsVoice,
     }),
     micDeviceId: () => settings.micDeviceId,
-    autoReconnect: settings.autoReconnect,
-    notifyOnTurnEnd: settings.notifyOnTurnEnd,
+    autoReconnect: () => settings.autoReconnect,
+    notifyOnTurnEnd: () => settings.notifyOnTurnEnd,
     bargeIn: () => settings.bargeIn,
     onReconnectStatus: (status) => {
       const cap = document.getElementById('caption');
@@ -565,7 +565,7 @@ async function bootstrap(): Promise<void> {
           minWidth: 180,
           minHeight: 100,
           onEnd: savePanelLayouts,
-          snapThreshold: settings.snapThreshold,
+          snapThreshold: () => settings.snapThreshold,
           snapTargets: () => {
             const rects: DOMRect[] = [];
             for (const p of document.querySelectorAll<HTMLElement>('.panel, .terminal-window, .diff-window')) {
@@ -698,7 +698,7 @@ function wireSettings(settings: AppSettings): void {
     invoke?.('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
   });
   // Apply saved VAD on startup
-  if (invoke && settings.vadMs !== 810) {
+  if (invoke && settings.vadMs !== DEFAULT_SETTINGS.vadMs) {
     invoke('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
   }
 
@@ -768,6 +768,33 @@ function wireSettings(settings: AppSettings): void {
   if (bargeCheck) bargeCheck.checked = settings.bargeIn;
   bargeCheck?.addEventListener('change', () => {
     settings.bargeIn = bargeCheck.checked;
+    saveSettings(settings);
+  });
+
+  // Auto-reconnect a dropped claude session (read live via the adapter getter).
+  const reconnectCheck = document.getElementById('set-reconnect') as HTMLInputElement | null;
+  if (reconnectCheck) reconnectCheck.checked = settings.autoReconnect;
+  reconnectCheck?.addEventListener('change', () => {
+    settings.autoReconnect = reconnectCheck.checked;
+    saveSettings(settings);
+  });
+
+  // Notify on a backgrounded turn-end (read live via the adapter getter).
+  const notifyCheck = document.getElementById('set-notify') as HTMLInputElement | null;
+  if (notifyCheck) notifyCheck.checked = settings.notifyOnTurnEnd;
+  notifyCheck?.addEventListener('change', () => {
+    settings.notifyOnTurnEnd = notifyCheck.checked;
+    saveSettings(settings);
+  });
+
+  // Window snap distance (read live by attachDragResize via the getter).
+  const snapSlider = document.getElementById('set-snap') as HTMLInputElement | null;
+  const snapVal = document.getElementById('set-snap-val');
+  if (snapSlider) snapSlider.value = String(settings.snapThreshold);
+  if (snapVal) snapVal.textContent = `${settings.snapThreshold}px`;
+  snapSlider?.addEventListener('input', () => {
+    settings.snapThreshold = Number(snapSlider.value);
+    if (snapVal) snapVal.textContent = `${snapSlider.value}px`;
     saveSettings(settings);
   });
 }

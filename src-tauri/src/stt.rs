@@ -497,10 +497,6 @@ fn download_model(app: &AppHandle, dest: &Path) -> Result<(), String> {
 fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> {
     const MAX_MODEL_BYTES: u64 = 512 * 1024 * 1024;
     let mut resume_from = std::fs::metadata(tmp).map(|m| m.len()).unwrap_or(0);
-    let _ = app.emit(
-        "stt://model",
-        ModelStatus { state: "downloading", downloaded: resume_from, total: 0 },
-    );
 
     // Explicit timeouts so a stalled/half-open socket cannot park the load thread
     // forever (the first tap-to-talk awaits this). 15 min overall caps the ~140 MB
@@ -554,6 +550,13 @@ fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> 
         let _ = std::fs::remove_file(tmp);
         return Err(format!("model too large: {total} bytes"));
     }
+
+    // First progress emit now that the real total is known, so the frontend never sees
+    // a `total: 0` (which would render as 0% / NaN before the first 4 MB chunk arrives).
+    let _ = app.emit(
+        "stt://model",
+        ModelStatus { state: "downloading", downloaded: resume_from, total },
+    );
 
     let mut reader = resp;
     let mut buf = vec![0u8; 1 << 16];

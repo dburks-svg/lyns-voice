@@ -34,7 +34,12 @@ export interface AppSettings {
   effort: string;
 }
 
-const DEFAULTS: AppSettings = {
+/** The valid HUD/orb themes (must stay in sync with THEME_PALETTES and the drawer buttons). */
+export const THEME_NAMES = ['cyan', 'aurora', 'ember'] as const;
+export type ThemeName = (typeof THEME_NAMES)[number];
+
+/** Default app settings; exported so callers compare against these instead of hardcoding. */
+export const DEFAULT_SETTINGS: AppSettings = {
   ttsVoice: '',
   ttsRate: 0,
   ttsPitch: 0,
@@ -53,11 +58,17 @@ const DEFAULTS: AppSettings = {
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
+    if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { ...DEFAULTS, ...parsed };
+    const merged = { ...DEFAULT_SETTINGS, ...parsed };
+    // Clamp a corrupt/hand-edited theme to a real palette so a bad value falls back to
+    // the default rather than being silently ignored (no theme button would highlight).
+    if (!THEME_NAMES.includes(merged.theme as ThemeName)) {
+      merged.theme = DEFAULT_SETTINGS.theme;
+    }
+    return merged;
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULT_SETTINGS };
   }
 }
 

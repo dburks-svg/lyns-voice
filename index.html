@@ -130,6 +130,24 @@
           </div>
         </div>
         <div class="settings-section">
+          <span class="settings-label">session</span>
+          <div class="hud-group settings-col">
+            <label class="settings-check">
+              <input id="set-reconnect" type="checkbox" />
+              auto-reconnect a dropped claude session
+            </label>
+            <label class="settings-check">
+              <input id="set-notify" type="checkbox" />
+              notify when a turn ends in the background
+            </label>
+            <div class="settings-slider-row">
+              <span class="settings-slider-label">snap</span>
+              <input id="set-snap" type="range" min="0" max="40" step="1" value="12" class="settings-range" />
+              <span id="set-snap-val" class="settings-slider-val">12px</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
           <span class="settings-label">theme</span>
           <div class="hud-group settings-row">
             <button class="theme-btn" data-theme="cyan">cyan</button>

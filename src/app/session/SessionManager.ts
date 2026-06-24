@@ -109,6 +109,12 @@ export class SessionManager {
       this.deps.onDone?.(name, p.is_error);
     });
     wire<{ cost_usd: number }>('usage', (p) => this.deps.onUsage?.(p));
+    // When the worker's claude child exits, the backend emits ready{active:false}.
+    // Without this, a dead worker's panel lingers looking alive and the fleet count
+    // stays inflated forever (close() tears down listeners, panel, and the count).
+    wire<{ active: boolean }>('ready', (p) => {
+      if (!p.active) this.close(id);
+    });
 
     this.sessions.set(id, { id, panel, unlisteners, name });
     this.deps.onCountChange?.(this.sessions.size);

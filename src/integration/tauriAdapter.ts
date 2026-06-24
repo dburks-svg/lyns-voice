@@ -211,7 +211,10 @@ export function tauriTtsFetch(invoke: InvokeFn, getSettings?: TtsSettingsGetter)
       const raw = await invoke<unknown>('tts_synthesize', args);
       const bytes = toArrayBuffer(raw);
       return { ok: true, arrayBuffer: async () => bytes };
-    } catch {
+    } catch (e) {
+      // Graceful fallback to text-only, but log the real Rust error string (e.g. a
+      // SAPI HRESULT or "text too long") so a silent voice has a diagnosable cause.
+      console.warn('[tauri-tts] tts_synthesize failed; falling back to text-only:', e);
       return { ok: false, arrayBuffer: async () => new ArrayBuffer(0) };
     }
   };
@@ -262,10 +265,11 @@ export interface TauriAdapterOptions {
   initialTheme?: ThemeName;
   /** Auto-reconnect status updates (attempt count, success/failure). */
   onReconnectStatus?: (status: { attempting: boolean; attempt: number; maxAttempts: number }) => void;
-  /** Whether auto-reconnect is enabled (default true). */
-  autoReconnect?: boolean;
-  /** Whether to show a system notification when a turn ends while backgrounded. */
-  notifyOnTurnEnd?: boolean;
+  /** Whether auto-reconnect is enabled (default true). Getter so the toggle is live. */
+  autoReconnect?: () => boolean;
+  /** Show a system notification when a turn ends while backgrounded (default true).
+   *  Getter so the toggle is live. */
+  notifyOnTurnEnd?: () => boolean;
   /** Override the Thinking watchdog timeout in ms (default 120000). */
   watchdogMs?: number;
   /** Voice barge-in: a spoken utterance during a reply cuts it off. Getter so the
@@ -475,9 +479,10 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     // Mood is parsed and STRIPPED here, before the text is spoken or captioned,
     // so the `<<mood:...>>` marker is never heard or shown (the spec contract).
     const parsed = parseMoodMarker(text);
-    if (parsed.mood) {
-      mood.setMood(parsed.mood);
-    }
+    // Each reply sets its own mood; a reply with no tag reverts to neutral rather than
+    // inheriting the previous turn's emotion (so an `error`-red orb does not bleed into
+    // later neutral replies). Matches the spec's "no tag keeps the orb neutral".
+    mood.setMood(parsed.mood ?? 'neutral');
     safeSetText(options.caption ?? null, parsed.stripped);
     options.onTranscript?.('q', parsed.stripped); // HUD chat log
     const chunks = splitForSpeech(parsed.stripped);
@@ -643,7 +648,9 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   view.document.addEventListener('visibilitychange', () => {
     windowFocused = !view.document.hidden;
   });
-  const notifyOnTurnEnd = options.notifyOnTurnEnd !== false;
+  // Read live each turn so the settings toggle takes effect without re-attaching
+  // (absent option = default enabled).
+  const shouldNotifyOnTurnEnd = (): boolean => options.notifyOnTurnEnd?.() !== false;
 
   // --- Claude bridge (Phase 3): the full voice loop -------------------------
   // onUtterance -> claude_submit -> Thinking -> spoken reply (with mood) -> idle.
@@ -659,7 +666,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   let reconnectAttempts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const MAX_RECONNECT = 5;
-  const autoReconnect = options.autoReconnect !== false;
+  const shouldAutoReconnect = (): boolean => options.autoReconnect?.() !== false;
 
   // Subscribe to one session's namespaced events. Hoisted so `startClaude` (declared
   // below) can call it; its handlers reference `startClaude` only at event time, by
@@ -730,7 +737,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
       // Speaking, so there is no idle flicker between Thinking and the spoken reply.
       void speak(speakable);
-      if (!windowFocused && notifyOnTurnEnd) {
+      if (!windowFocused && shouldNotifyOnTurnEnd()) {
         void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
           sendNotification({ title: 'Q', body: 'Response ready.' });
         }).catch(() => undefined);
@@ -750,7 +757,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         claudeConnected = false;
         signals.pendingResponse = false;
         sync();
-        if (!userDisconnected && autoReconnect && lastDir && reconnectAttempts < MAX_RECONNECT) {
+        if (!userDisconnected && shouldAutoReconnect() && lastDir && reconnectAttempts < MAX_RECONNECT) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
           reconnectAttempts++;
           options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
@@ -771,7 +778,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
               }
             });
           }, delay);
-        } else if (!userDisconnected && autoReconnect && reconnectAttempts >= MAX_RECONNECT) {
+        } else if (!userDisconnected && shouldAutoReconnect() && reconnectAttempts >= MAX_RECONNECT) {
           options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
         }
       }

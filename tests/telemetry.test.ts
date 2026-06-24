@@ -117,11 +117,12 @@ describe('TelemetryPanels', () => {
       input_tokens: 500,
       output_tokens: 300,
       cache_read_tokens: 0,
-      cache_creation_tokens: 0,
+      cache_creation_tokens: 300,
       cost_usd: 0.02,
     });
-    // in = 1000+200 + 500 = 1.7k ; out = 200+300 = 500 ; cost = $0.0300 ; turns = 2
-    expect(refs.tokensIn?.textContent).toBe('1.7k');
+    // in = (1000+200+0) + (500+0+300) = 2000 (cache_creation counts as input) ;
+    // out = 200+300 = 500 ; cost = $0.0300 ; turns = 2
+    expect(refs.tokensIn?.textContent).toBe('2k');
     expect(refs.tokensOut?.textContent).toBe('500');
     expect(refs.cost?.textContent).toBe('$0.0300');
     expect(refs.turns?.textContent).toBe('2');
