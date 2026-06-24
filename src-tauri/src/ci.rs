@@ -1,6 +1,9 @@
 use serde::Serialize;
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[derive(Clone, Serialize)]
 pub struct CiStatus {
     pub state: String,
@@ -8,8 +11,11 @@ pub struct CiStatus {
 
 #[tauri::command]
 pub async fn ci_status() -> Result<CiStatus, String> {
-    let output = Command::new("gh")
-        .args(["run", "list", "--limit", "1", "--json", "status,conclusion"])
+    let mut cmd = Command::new("gh");
+    cmd.args(["run", "list", "--limit", "1", "--json", "status,conclusion"]);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = cmd
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
