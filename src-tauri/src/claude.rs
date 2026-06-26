@@ -418,7 +418,11 @@ the spawn markers right where you announce the plan, before doing the work, so e
 in its own window. If two branches share one repo, give each its own git worktree directory and \
 point that worker's DIR at it. Only parallelize work with clear separation; one coherent task \
 stays in one session, and you propose before fanning out since each session costs separately. \
-Put each marker on its own line, never inside a code block.";
+Put each marker on its own line, never inside a code block. \
+Begin every spoken reply with a mood marker the app strips before it is spoken or shown: \
+<<mood:NAME>> where NAME is one of neutral, focused, happy, concerned, error, or curious \
+(happy on success, concerned or error on problems, focused while working, curious when \
+exploring). Put it at the very start of the reply.";
 
 fn spawn_claude(
     cwd: &Path,
