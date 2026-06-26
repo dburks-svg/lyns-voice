@@ -50,3 +50,12 @@ windows = { version = "0.61", features = [
   "Win32_Media_Audio",
   "Win32_Media_Speech",
 ] }
+
+# Optimize dependencies even in dev builds. whisper-rs (the STT inference engine)
+# and webrtc-vad are unusably slow compiled unoptimized, which makes the `tauri
+# dev` voice loop lag many seconds before a transcript appears. The app crate
+# itself stays at opt-level 0 for fast iteration; only the (rarely-recompiled)
+# dependencies get O3. Costs one longer rebuild, then dev STT runs near release
+# speed. (Use a release `tauri build` for the true latency measure regardless.)
+[profile.dev.package."*"]
+opt-level = 3
