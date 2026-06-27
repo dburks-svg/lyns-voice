@@ -193,8 +193,10 @@ export function toArrayBuffer(raw: unknown): ArrayBuffer {
   return new ArrayBuffer(0);
 }
 
-/** Callback that provides current TTS settings for each synthesis call. */
-export type TtsSettingsGetter = () => { rate: number; pitch: number; voice: string };
+/** Callback that provides current TTS settings for each synthesis call. `engine`
+ *  selects the backend ('kokoro' default, 'sapi' for the Windows fallback); when
+ *  omitted the Rust side defaults to Kokoro. */
+export type TtsSettingsGetter = () => { rate: number; pitch: number; voice: string; engine?: string };
 
 /**
  * A `MediaTts` `fetchImpl` that ignores the URL and synthesizes through the Rust
@@ -218,6 +220,7 @@ export function tauriTtsFetch(invoke: InvokeFn, getSettings?: TtsSettingsGetter)
       if (s.rate) args.rate = s.rate;
       if (s.pitch) args.pitch = s.pitch;
       if (s.voice) args.voice = s.voice;
+      if (s.engine) args.engine = s.engine;
       const raw = await invoke<unknown>('tts_synthesize', args);
       const bytes = toArrayBuffer(raw);
       return { ok: true, arrayBuffer: async () => bytes };
@@ -421,8 +424,34 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // sentence from a queue: each chunk is a small WAV, and onSpeakingEnd pumps the
   // next until the queue drains (then -> idle).
   const speechQueue: string[] = [];
+  // One-chunk-ahead synthesis: while a chunk plays, the next is already being
+  // synthesized (decoded), so chunks play back-to-back with no synthesis gap.
+  let prefetch: Promise<AudioBuffer | null> | null = null;
+  // Bumped on every stop/clear so a synth that resolves AFTER a barge-in/turn-cut
+  // is abandoned rather than played.
+  let speechGen = 0;
   // Fire the "voice unavailable" notice at most once per reply (not once per chunk).
   let ttsNoticeFired = false;
+
+  // Drop all pending + prefetched speech (call before mediaTts.stop() at every
+  // barge-in / turn-cut site so the in-flight prefetch can't play afterwards).
+  const clearSpeechQueue = (): void => {
+    speechQueue.length = 0;
+    prefetch = null;
+    speechGen++;
+  };
+  const noticeTtsUnavailable = (): void => {
+    console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
+    if (ttsNoticeFired) return;
+    ttsNoticeFired = true;
+    // Surface it once per reply (toast) so a silent failure is not console-only;
+    // the reply text is already in the caption.
+    void import('@tauri-apps/plugin-notification')
+      .then(({ sendNotification }) => {
+        sendNotification({ title: 'Q', body: 'Voice output unavailable; the reply is shown as text.' });
+      })
+      .catch(() => undefined);
+  };
 
   const onSpeakingStart = (): void => {
     signals.speaking = true;
@@ -430,7 +459,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     sync();
   };
   const onSpeakingEnd = (): void => {
-    if (speechQueue.length > 0) {
+    if (speechQueue.length > 0 || prefetch) {
       pumpSpeech();
     } else {
       signals.speaking = false;
@@ -463,28 +492,50 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     if (mediaTts.isSpeaking) {
       return;
     }
-    const next = speechQueue.shift();
-    if (next === undefined) {
+    const gen = speechGen;
+    // Use the buffer already being synthesized (pipelined), else start the head now.
+    const pending = prefetch ?? startSynth();
+    prefetch = null;
+    if (!pending) {
       // Always sync on drain (even if every chunk failed and speaking was never
       // set), so the avatar never stays stuck on the prior state.
       signals.speaking = false;
       sync();
       return;
     }
-    void mediaTts.speak(next).then((ok) => {
-      if (!ok) {
-        console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
-        if (!ttsNoticeFired) {
-          ttsNoticeFired = true;
-          // Surface it once per reply (toast) so a silent failure is not console-only;
-          // the reply text is already in the caption.
-          void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
-            sendNotification({ title: 'Q', body: 'Voice output unavailable; the reply is shown as text.' });
-          }).catch(() => undefined);
-        }
-        pumpSpeech(); // skip the failed chunk; keep the reply moving
+    void pending.then((buf) => {
+      // A barge-in / turn-cut (or a newer pump) landed while we were synthesizing.
+      if (gen !== speechGen || mediaTts.isSpeaking) {
+        return;
       }
+      if (buf === null) {
+        noticeTtsUnavailable();
+        pumpSpeech(); // skip the failed chunk; keep the reply moving
+        return;
+      }
+      // Pipeline: begin synthesizing the FOLLOWING chunk during this playback, so
+      // the next onSpeakingEnd has it ready with no synthesis gap.
+      prefetch = startSynth();
+      void mediaTts.playBuffer(buf).then((ok) => {
+        if (!ok && gen === speechGen) {
+          noticeTtsUnavailable();
+          pumpSpeech(); // couldn't start playback; move on
+        }
+      });
     });
+  }
+
+  // Shift the next non-empty chunk and begin synthesizing it (fetch + decode),
+  // returning the in-flight buffer promise, or null when the queue is empty.
+  function startSynth(): Promise<AudioBuffer | null> | null {
+    let text: string | undefined;
+    do {
+      text = speechQueue.shift();
+    } while (text !== undefined && !text.trim());
+    if (text === undefined) {
+      return null;
+    }
+    return mediaTts.synthesize(text);
   }
 
   const speak = async (text: string): Promise<boolean> => {
@@ -573,7 +624,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // whether anything was interrupted, so Escape can fall through to closing a panel.
   function interrupt(): boolean {
     if (signals.speaking) {
-      speechQueue.length = 0;
+      clearSpeechQueue();
       mediaTts.stop();
       signals.speaking = false;
       sync();
@@ -630,6 +681,31 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       safeSetText(options.caption ?? null, 'Speech model unavailable (see logs)');
       signals.micActive = false;
       sync();
+    }
+  });
+  // Kokoro voice-model first-run download (parallel to stt://model). Fires only
+  // during a real download, so it never clears a reply caption on normal replies.
+  let ttsDlLast = 0;
+  let ttsDlLastT = 0;
+  addListener<{ state: string; file?: string; downloaded: number; total: number }>('tts://model', (p) => {
+    if (p.state === 'downloading') {
+      const pct = p.total > 0 ? Math.floor((p.downloaded / p.total) * 100) : 0;
+      const now = performance.now();
+      let suffix = '';
+      if (ttsDlLastT > 0 && p.total > 0 && p.downloaded > ttsDlLast) {
+        const bps = ((p.downloaded - ttsDlLast) / (now - ttsDlLastT)) * 1000;
+        if (bps > 0) {
+          const remain = Math.ceil((p.total - p.downloaded) / bps);
+          suffix = ` (${(bps / 1e6).toFixed(1)} MB/s, ~${remain}s left)`;
+        }
+      }
+      ttsDlLast = p.downloaded;
+      ttsDlLastT = now;
+      safeSetText(options.caption ?? null, `Downloading voice model… ${pct}%${suffix}`);
+    } else if (p.state === 'ready') {
+      safeSetText(options.caption ?? null, '');
+    } else if (p.state === 'error') {
+      safeSetText(options.caption ?? null, 'Voice model unavailable (see logs)');
     }
   });
   addListener<{ text: string }>('stt://error', (p) => {
@@ -849,7 +925,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     void invoke('claude_cancel', { id: currentSessionId }).catch((e: unknown) =>
       console.warn('[tauri-claude] cancel', e),
     );
-    speechQueue.length = 0;
+    clearSpeechQueue();
     mediaTts.stop();
     signals.pendingResponse = false;
     signals.speaking = false;
@@ -863,7 +939,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     const prev = currentSessionId;
     currentSessionId = null;
     void invoke('claude_stop', prev ? { id: prev } : {}).catch(() => undefined);
-    speechQueue.length = 0; // drop any queued reply chunks
+    clearSpeechQueue(); // drop any queued + prefetched reply chunks
     mediaTts.stop(); // cut current playback (fires onSpeakingEnd -> drains to idle)
     signals.pendingResponse = false;
     signals.speaking = false;

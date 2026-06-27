@@ -147,4 +147,48 @@ describe('MediaTts', () => {
     vi.advanceTimersByTime(50);
     expect(onBoundary).not.toHaveBeenCalled();
   });
+
+  // --- pipelining seam: synthesize (fetch+decode) split from playBuffer ---
+
+  it('synthesize fetches + decodes a buffer WITHOUT starting playback', async () => {
+    const { ctx, source } = makeCtx();
+    const mt = new MediaTts({ fetchImpl: okFetch(), audioContextFactory: () => ctx });
+    const buf = await mt.synthesize('hello');
+    expect(buf).not.toBeNull();
+    expect(source.start).not.toHaveBeenCalled();
+    expect(mt.isSpeaking).toBe(false);
+  });
+
+  it('synthesize returns null on empty text (no fetch) and on a failed fetch', async () => {
+    const empty = okFetch();
+    const mtEmpty = new MediaTts({ fetchImpl: empty, audioContextFactory: () => makeCtx().ctx });
+    expect(await mtEmpty.synthesize('   ')).toBeNull();
+    expect(empty).not.toHaveBeenCalled();
+
+    const bad = vi.fn().mockResolvedValue({ ok: false, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+    const mtBad = new MediaTts({ fetchImpl: bad, audioContextFactory: () => makeCtx().ctx });
+    expect(await mtBad.synthesize('hi')).toBeNull();
+  });
+
+  it('playBuffer plays a prefetched buffer and reports speaking start then end', async () => {
+    const { ctx, source } = makeCtx();
+    const onSpeakingStart = vi.fn();
+    const onSpeakingEnd = vi.fn();
+    const mt = new MediaTts({
+      fetchImpl: okFetch(),
+      audioContextFactory: () => ctx,
+      onSpeakingStart,
+      onSpeakingEnd,
+    });
+    const buf = await mt.synthesize('hello');
+    expect(buf).not.toBeNull();
+    if (!buf) return;
+    expect(await mt.playBuffer(buf)).toBe(true);
+    expect(source.start).toHaveBeenCalledTimes(1);
+    expect(onSpeakingStart).toHaveBeenCalledTimes(1);
+    expect(mt.isSpeaking).toBe(true);
+    source.onended?.();
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(mt.isSpeaking).toBe(false);
+  });
 });

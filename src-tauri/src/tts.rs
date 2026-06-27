@@ -15,10 +15,15 @@
 //! COM/SAPI work runs on a `spawn_blocking` task that owns its own COM apartment.
 
 use tauri::ipc::Response;
+use tauri::Manager;
 
-/// List the names of all installed SAPI voices on this system.
+/// List the voices for the chosen engine. Kokoro is the default; pass
+/// `engine = "sapi"` to enumerate the installed Windows SAPI voices instead.
 #[tauri::command]
-pub async fn tts_list_voices() -> Result<Vec<String>, String> {
+pub async fn tts_list_voices(engine: Option<String>) -> Result<Vec<String>, String> {
+    if engine.as_deref() != Some("sapi") {
+        return Ok(crate::kokoro::voice_ids());
+    }
     tauri::async_runtime::spawn_blocking(list_voices)
         .await
         .map_err(|e| format!("TTS list voices join: {e}"))?
@@ -31,13 +36,13 @@ pub async fn tts_list_voices() -> Result<Vec<String>, String> {
 /// (an `ArrayBuffer` on the JS side), or an error string the frontend falls back
 /// on (so a synthesis failure degrades gracefully rather than throwing).
 #[tauri::command]
-pub async fn tts_synthesize(text: String, rate: Option<i32>, pitch: Option<i32>, voice: Option<String>) -> Result<Response, String> {
+pub async fn tts_synthesize(app: tauri::AppHandle, text: String, rate: Option<i32>, pitch: Option<i32>, voice: Option<String>, engine: Option<String>) -> Result<Response, String> {
     if text.trim().is_empty() {
         return Err("text is empty".into());
     }
     // Bound the worst case: cap utterance length so one call can never allocate an
     // unbounded multi-MB WAV (and the RIFF u32 size fields can never wrap). A real
-    // utterance is far under this; Phase 3 sentence-chunks long replies anyway.
+    // utterance is far under this; long replies are sentence-chunked upstream.
     const MAX_CHARS: usize = 5000;
     let char_count = text.chars().count();
     if char_count > MAX_CHARS {
@@ -45,18 +50,33 @@ pub async fn tts_synthesize(text: String, rate: Option<i32>, pitch: Option<i32>,
     }
     let rate = rate.unwrap_or(0).clamp(-10, 10);
     let pitch = pitch.unwrap_or(0).clamp(-10, 10);
-    let wav = tauri::async_runtime::spawn_blocking(move || synth_to_wav(&text, rate, pitch, voice.as_deref()))
-        .await
-        .map_err(|e| format!("TTS task failed to join: {e}"))??;
+    // Default to the Kokoro neural engine; SAPI is the explicit/back-up path. Any
+    // Kokoro failure (model still downloading, load error) falls back to SAPI so a
+    // reply is never dropped. (On non-Windows the SAPI fallback returns an error,
+    // which is fine: Kokoro is the cross-platform path.)
+    let engine = engine.unwrap_or_else(|| "kokoro".into());
+    let wav = tauri::async_runtime::spawn_blocking(move || {
+        if engine != "sapi" {
+            // Map SAPI-style rate (-10..=10) to a Kokoro speed multiplier around 1.0.
+            let speed = (1.0 + rate as f32 * 0.05).clamp(0.5, 2.0);
+            let state = app.state::<crate::kokoro::KokoroState>();
+            match crate::kokoro::synth_to_wav_kokoro(&app, &state, &text, voice.as_deref(), speed) {
+                Ok(wav) => return Ok(wav),
+                Err(e) => log::warn!("[tts] kokoro synth failed ({e}); falling back to SAPI"),
+            }
+        }
+        synth_to_wav(&text, rate, pitch, voice.as_deref())
+    })
+    .await
+    .map_err(|e| format!("TTS task failed to join: {e}"))??;
     Ok(Response::new(wav))
 }
 
 /// Wrap raw little-endian PCM in a canonical 44-byte RIFF/WAVE header. If `pcm`
 /// already begins with `RIFF` (a full WAV), it is returned unchanged so we never
-/// double-wrap. Gated to the targets that use it (the Windows synth path and the
-/// tests) so a non-Windows build emits no dead-code warning.
-#[cfg(any(windows, test))]
-fn build_wav(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) -> Vec<u8> {
+/// double-wrap. Shared by the SAPI path (Windows) and the Kokoro path (all targets,
+/// at 24 kHz), so it is always reachable.
+pub(crate) fn build_wav(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) -> Vec<u8> {
     if pcm.len() >= 4 && &pcm[..4] == b"RIFF" {
         return pcm.to_vec();
     }

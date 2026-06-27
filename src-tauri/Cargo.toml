@@ -38,6 +38,13 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["process", "io-util", "sync"] }
 # Real interactive terminal (Windows ConPTY) for the user-owned escape-hatch shell.
 portable-pty = "0.8"
+# Neural TTS (Kokoro-82M) run in-process via ONNX Runtime. `download-binaries`
+# fetches a prebuilt onnxruntime at build time (no system install). MIT-licensed,
+# so Q stays permissively shippable. See src/kokoro.rs.
+ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
+# Grapheme->phoneme for Kokoro. espeak feature OFF (default-features=false) keeps
+# it dependency-free and GPL-free; OOV words fall back to letter spelling.
+misaki-rs = { version = "0.3", default-features = false }
 
 # Native SAPI text-to-speech (in-process; no powershell.exe child). 0.61.x is the
 # version Tauri already resolves, so this adds features to a crate already in the

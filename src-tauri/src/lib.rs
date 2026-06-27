@@ -1,6 +1,7 @@
 mod ci;
 mod claude;
 mod history;
+mod kokoro;
 mod stt;
 mod terminal;
 mod transcript;
@@ -24,6 +25,7 @@ pub fn run() {
     .manage(stt::SttState::default())
     .manage(claude::ClaudeState::default())
     .manage(terminal::TerminalState::default())
+    .manage(kokoro::KokoroState::default())
     .invoke_handler(tauri::generate_handler![
       tts::tts_synthesize,
       tts::tts_list_voices,

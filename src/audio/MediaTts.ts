@@ -119,23 +119,22 @@ export class MediaTts {
   }
 
   /**
-   * Synthesize `text` on the server and play it. Resolves `true` when handled
-   * (played, or empty text), `false` to tell the caller to fall back to the
-   * native speech engine. Never rejects.
+   * Fetch + decode `text` into a ready-to-play `AudioBuffer` WITHOUT starting
+   * playback. Returns `null` on empty text or any fetch/decode failure (the caller
+   * skips that chunk). Splitting synthesis from playback lets the caller synthesize
+   * the NEXT chunk while the current one is still playing (pipelining), so chunks
+   * play back-to-back with no inter-chunk synthesis gap. Never rejects.
    */
-  async speak(text: string): Promise<boolean> {
+  async synthesize(text: string): Promise<AudioBuffer | null> {
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed) {
-      // Nothing to say; report handled so the caller does not fall back and
-      // push an empty utterance through the (silent) browser engine.
-      return true;
+      return null;
     }
     const fetchImpl = this.fetchImpl;
     const ctx = this.ensureContext();
     if (!fetchImpl || !ctx) {
-      return false;
+      return null;
     }
-    let buffer: AudioBuffer;
     try {
       const res = await fetchImpl(this.endpoint, {
         method: 'POST',
@@ -143,7 +142,7 @@ export class MediaTts {
         body: JSON.stringify({ text: trimmed }),
       });
       if (!res.ok) {
-        return false;
+        return null;
       }
       const data = await res.arrayBuffer();
       if (ctx.state === 'suspended') {
@@ -153,8 +152,20 @@ export class MediaTts {
           // Autoplay may still be locked; decode/playback will simply be silent.
         }
       }
-      buffer = await ctx.decodeAudioData(data);
+      return await ctx.decodeAudioData(data);
     } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Play an already-decoded buffer, cutting off any previous reply, and drive the
+   * Speaking animation from the real amplitude envelope. Resolves `true` when
+   * playback started, `false` otherwise. Never rejects.
+   */
+  async playBuffer(buffer: AudioBuffer): Promise<boolean> {
+    const ctx = this.ensureContext();
+    if (!ctx) {
       return false;
     }
     try {
@@ -177,6 +188,23 @@ export class MediaTts {
       this.finishSpeaking();
       return false;
     }
+  }
+
+  /**
+   * Synthesize `text` on the server and play it. Resolves `true` when handled
+   * (played, or empty text), `false` to tell the caller to fall back to the
+   * native speech engine. Never rejects. Retained for non-pipelining callers and
+   * the unit tests; the pipelined path uses `synthesize` + `playBuffer` directly.
+   */
+  async speak(text: string): Promise<boolean> {
+    const buffer = await this.synthesize(text);
+    if (buffer === null) {
+      // Preserve the prior contract: empty text = handled (true); a real
+      // fetch/decode failure = false so the caller can fall back.
+      const trimmed = typeof text === 'string' ? text.trim() : '';
+      return trimmed === '';
+    }
+    return this.playBuffer(buffer);
   }
 
   /** Stop any in-flight playback and emit a clean end. */

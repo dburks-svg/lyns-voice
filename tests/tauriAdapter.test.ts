@@ -82,6 +82,17 @@ describe('tauriTtsFetch', () => {
 
     expect(seen).toEqual(['', '']);
   });
+
+  it('forwards rate/pitch/voice/engine from the settings getter', async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const invoke = (async (_cmd: string, args?: Record<string, unknown>) => {
+      calls.push(args);
+      return new ArrayBuffer(0);
+    }) as InvokeFn;
+    const fetchImpl = tauriTtsFetch(invoke, () => ({ rate: 3, pitch: -2, voice: 'af_heart', engine: 'kokoro' }));
+    await fetchImpl('/api/tts-wav', { method: 'POST', body: JSON.stringify({ text: 'hi' }) });
+    expect(calls[0]).toEqual({ text: 'hi', rate: 3, pitch: -2, voice: 'af_heart', engine: 'kokoro' });
+  });
 });
 
 describe('splitForSpeech', () => {
