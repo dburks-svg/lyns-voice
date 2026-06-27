@@ -88,6 +88,12 @@ const defaultAvatarFactory: AvatarFactory = (options) => new QOrbAvatar(options)
 
 /** How long to wait for a Claude reply before recovering from a hung Thinking. */
 const WATCHDOG_MS = 120_000;
+/**
+ * A real ultracode turn fans out many sub-agents and runs for minutes, so while ultracode is
+ * the active effort the conductor's watchdog gets a much longer budget (the 30s reassurance
+ * ticks keep it from looking frozen). It still eventually recovers a genuinely hung UI.
+ */
+const ULTRACODE_WATCHDOG_MS = 900_000;
 /** How often to reassure ("Still working…") during a long Thinking turn. */
 const WATCHDOG_NOTICE_MS = 30_000;
 
@@ -104,13 +110,15 @@ export interface Watchdog {
 /**
  * A single-shot, re-armable timeout. `arm()` while already armed is a no-op (the
  * countdown is not restarted), so repeated syncs during one Thinking turn don't
- * push the deadline out. An optional `progress` fires `onTick` every `everyMs`
- * until the turn resolves (clear) or the deadline fires, so a long turn can reassure
- * the user instead of looking frozen. Pure but for the injected timer; unit-tested.
+ * push the deadline out. `ms` may be a function, resolved at `arm()` time, so the
+ * deadline can vary per turn (e.g. a longer budget for an ultracode turn). An optional
+ * `progress` fires `onTick` every `everyMs` until the turn resolves (clear) or the
+ * deadline fires, so a long turn can reassure the user instead of looking frozen. Pure
+ * but for the injected timer; unit-tested.
  */
 export function createWatchdog(
   view: TimerView,
-  ms: number,
+  ms: number | (() => number),
   onTimeout: () => void,
   progress?: { everyMs: number; onTick: () => void },
 ): Watchdog {
@@ -139,11 +147,13 @@ export function createWatchdog(
       if (timer !== null) {
         return;
       }
+      // Resolve the deadline at arm time so it can vary per turn (ultracode gets a longer budget).
+      const deadline = typeof ms === 'function' ? ms() : ms;
       timer = view.setTimeout(() => {
         timer = null;
         clearTick();
         onTimeout();
-      }, ms);
+      }, deadline);
       scheduleTick();
     },
     clear(): void {
@@ -368,7 +378,9 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // resolves (speaking/idle) or on dispose.
   const watchdog = createWatchdog(
     view,
-    options.watchdogMs ?? WATCHDOG_MS,
+    // ultracode turns fan out and run for minutes; give the conductor a longer budget while it
+    // is the active effort. `lastEffort` is read lazily at arm time (after it is initialized).
+    () => (lastEffort === 'ultracode' ? ULTRACODE_WATCHDOG_MS : (options.watchdogMs ?? WATCHDOG_MS)),
     () => {
       if (signals.pendingResponse && !signals.speaking) {
         console.warn('[tauri-claude] watchdog: no reply in time; recovering from Thinking');

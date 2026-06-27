@@ -213,6 +213,27 @@ describe('createWatchdog', () => {
       vi.useRealTimers();
     }
   });
+
+  it('resolves a function deadline at arm() time (the ultracode longer-budget path)', () => {
+    vi.useFakeTimers();
+    try {
+      const onTimeout = vi.fn();
+      let ms = 1000;
+      const wd = createWatchdog(globalThis as unknown as Window, () => ms, onTimeout);
+      wd.arm();
+      vi.advanceTimersByTime(1000);
+      expect(onTimeout).toHaveBeenCalledTimes(1); // first arm resolved to 1000
+
+      ms = 5000; // the source (e.g. switching to ultracode) changed before the next turn
+      wd.arm();
+      vi.advanceTimersByTime(1000);
+      expect(onTimeout).toHaveBeenCalledTimes(1); // still pending under the re-resolved 5000 budget
+      vi.advanceTimersByTime(4000);
+      expect(onTimeout).toHaveBeenCalledTimes(2); // fired at 5000
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('attachTauri (Claude session binding)', () => {

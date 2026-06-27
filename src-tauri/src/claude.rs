@@ -154,6 +154,19 @@ const ALLOWED_TOOLS: &[&str] = &[
     // Orchestration
     "Task",
     "TodoWrite",
+    // Ultracode dynamic-workflow orchestration. `Workflow` launches a scripted fan-out of
+    // background sub-agents; the Task*/Monitor tools let the turn poll, inspect, and stop that
+    // background work. Same project-dir blast radius as `Task` above (the spawned agents inherit
+    // this exact allowlist), so this adds no new external capability - it just lets ultracode
+    // (`--settings {"ultracode":true}`) actually orchestrate instead of being denied by dontAsk.
+    "Workflow",
+    "Monitor",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "TaskUpdate",
 ];
 
 /// Catastrophic shell patterns denied even though `Bash` is allowed (deny wins
@@ -726,8 +739,17 @@ fn emit_usage(app: &AppHandle, id: &str, v: &Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{cap_output, command_output, effort_args, shorten, tool_target};
+    use super::{cap_output, command_output, effort_args, shorten, tool_target, ALLOWED_TOOLS};
     use serde_json::json;
+
+    #[test]
+    fn allowlist_enables_ultracode_workflow_orchestration() {
+        // ultracode (--settings {"ultracode":true}) fans out via the Workflow tool; without
+        // Workflow on the allowlist, dontAsk denies the orchestration and ultracode is only
+        // half-enabled. Guard the enablement against an accidental removal.
+        assert!(ALLOWED_TOOLS.contains(&"Workflow"));
+        assert!(ALLOWED_TOOLS.contains(&"Monitor"));
+    }
 
     #[test]
     fn effort_args_translates_ultracode_to_a_settings_flag() {
