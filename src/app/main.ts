@@ -7,7 +7,15 @@ import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
 import { SessionPanel } from './session/SessionPanel';
 import { SessionManager } from './session/SessionManager';
-import { loadSettings, saveSettings, DEFAULT_SETTINGS, type AppSettings, type PanelLayout } from './settings';
+import {
+  loadSettings,
+  saveSettings,
+  DEFAULT_SETTINGS,
+  effortLevelsForModel,
+  clampEffortToModel,
+  type AppSettings,
+  type PanelLayout,
+} from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
 import { showOnboarding } from './onboarding';
@@ -759,13 +767,42 @@ function wireSettings(settings: AppSettings): void {
   });
 
   // Model + effort: applied to the NEXT connected session (per session, set at spawn).
+  // Effort levels are model-dependent, so the effort menu is rebuilt whenever the model
+  // changes. `ultracode` is Opus-only; the Rust spawn translates it to
+  // `--settings {"ultracode":true}` (it is not a real `--effort` value).
   const modelSelect = document.getElementById('set-model') as HTMLSelectElement | null;
   const effortSelect = document.getElementById('set-effort') as HTMLSelectElement | null;
+
+  // Rebuild #set-effort for the given model (per-model menus + self-heal live in settings.ts).
+  // The saved effort is clamped to one the model offers, so stale combos (sonnet+xhigh,
+  // haiku+anything) reset to default; a reset is persisted so it sticks.
+  const rebuildEffortOptions = (modelValue: string): void => {
+    if (!effortSelect) return;
+    const levels = effortLevelsForModel(modelValue);
+    const clamped = clampEffortToModel(modelValue, settings.effort);
+    if (clamped !== settings.effort) {
+      settings.effort = clamped;
+      saveSettings(settings);
+    }
+    const mkOption = (value: string, label: string): HTMLOptionElement => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      return opt;
+    };
+    effortSelect.replaceChildren(
+      mkOption('', 'default effort'),
+      ...levels.map((level) => mkOption(level, level)),
+    );
+    effortSelect.value = settings.effort;
+  };
+
   if (modelSelect) modelSelect.value = settings.model;
-  if (effortSelect) effortSelect.value = settings.effort;
+  rebuildEffortOptions(settings.model);
   modelSelect?.addEventListener('change', () => {
     settings.model = modelSelect.value;
     saveSettings(settings);
+    rebuildEffortOptions(modelSelect.value);
   });
   effortSelect?.addEventListener('change', () => {
     settings.effort = effortSelect.value;

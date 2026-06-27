@@ -77,18 +77,20 @@
         <div class="settings-section">
           <span class="settings-label">model + effort</span>
           <div class="hud-group settings-row">
-            <select id="set-model" class="settings-select">
+            <select
+              id="set-model"
+              class="settings-select"
+              title="Each tier picks the latest model of that tier (Opus is Opus 4.8 today)."
+            >
               <option value="">default model</option>
               <option value="opus">Opus</option>
               <option value="sonnet">Sonnet</option>
               <option value="haiku">Haiku</option>
             </select>
+            <!-- Effort options are rebuilt per model in main.ts (levels are model-dependent;
+                 ultracode is Opus-only). Only the default stays static here. -->
             <select id="set-effort" class="settings-select">
               <option value="">default effort</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
             </select>
           </div>
         </div>

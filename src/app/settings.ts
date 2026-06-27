@@ -38,6 +38,35 @@ export interface AppSettings {
 export const THEME_NAMES = ['cyan', 'aurora', 'ember'] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 
+/**
+ * Effort levels each model tier accepts (the empty key is "default model" = an unknown
+ * model, so it gets a conservative subset valid on any tier). Opus 4.8 additionally offers
+ * `ultracode` - a Claude Code session setting (xhigh + dynamic-workflow orchestration) that
+ * the Rust spawn translates to `--settings {"ultracode":true}` because it is NOT a real
+ * `--effort` value (the CLI silently ignores it as an effort). Sonnet 4.6 has no `xhigh`;
+ * Haiku 4.5 does not support the effort parameter at all.
+ */
+export const EFFORT_BY_MODEL: Record<string, string[]> = {
+  opus: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+  sonnet: ['low', 'medium', 'high', 'max'],
+  haiku: [],
+  '': ['low', 'medium', 'high'],
+};
+
+/** The effort levels a model value offers (unknown models fall back to the safe subset). */
+export function effortLevelsForModel(model: string): string[] {
+  return EFFORT_BY_MODEL[model] ?? EFFORT_BY_MODEL[''];
+}
+
+/**
+ * Clamp a saved effort to one the model actually offers: returns the effort unchanged when
+ * it is valid (or the empty "default effort"), otherwise '' so a stale combo left in
+ * localStorage (e.g. sonnet+xhigh, haiku+anything, sonnet+ultracode) self-heals to default.
+ */
+export function clampEffortToModel(model: string, effort: string): string {
+  return effort === '' || effortLevelsForModel(model).includes(effort) ? effort : '';
+}
+
 /** Default app settings; exported so callers compare against these instead of hardcoding. */
 export const DEFAULT_SETTINGS: AppSettings = {
   ttsVoice: '',

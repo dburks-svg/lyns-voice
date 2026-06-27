@@ -424,6 +424,21 @@ Begin every spoken reply with a mood marker the app strips before it is spoken o
 (happy on success, concerned or error on problems, focused while working, curious when \
 exploring). Put it at the very start of the reply.";
 
+/// Build the per-session effort argv fragment.
+///
+/// `ultracode` is NOT a valid `--effort` value: it is a Claude Code session setting (sends
+/// `xhigh` to the model AND turns on dynamic-workflow orchestration) enabled via `--settings`,
+/// not `--effort`. Passed as an effort level the CLI silently ignores it, so translate it here.
+/// `None` (the dropdown's "default effort") adds nothing and lets claude pick its own default.
+/// Effort levels are model-dependent; the UI gates them per model, and `ultracode` is Opus-only.
+fn effort_args(effort: Option<&str>) -> Vec<&str> {
+    match effort {
+        Some("ultracode") => vec!["--settings", r#"{"ultracode":true}"#],
+        Some(e) => vec!["--effort", e],
+        None => vec![],
+    }
+}
+
 fn spawn_claude(
     cwd: &Path,
     fallback: Option<&Path>,
@@ -452,9 +467,9 @@ fn spawn_claude(
         if let Some(m) = model {
             c.arg("--model").arg(m);
         }
-        if let Some(e) = effort {
-            c.arg("--effort").arg(e);
-        }
+        // Per-session effort (see `effort_args`: `ultracode` becomes a `--settings` flag
+        // rather than an `--effort` value the CLI would silently ignore).
+        c.args(effort_args(effort));
         // The primary session runs the floor: teach it the orchestration markers so it can
         // spawn and steer workers by voice. Workers never get this, so only the conductor
         // emits markers and there is no recursive spawning.
@@ -711,8 +726,23 @@ fn emit_usage(app: &AppHandle, id: &str, v: &Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{cap_output, command_output, shorten, tool_target};
+    use super::{cap_output, command_output, effort_args, shorten, tool_target};
     use serde_json::json;
+
+    #[test]
+    fn effort_args_translates_ultracode_to_a_settings_flag() {
+        // ultracode is NOT a real `--effort` value; it must become `--settings` or the CLI
+        // silently ignores it (this branch guards that exact failure mode).
+        assert_eq!(
+            effort_args(Some("ultracode")),
+            vec!["--settings", r#"{"ultracode":true}"#]
+        );
+        // Ordinary levels pass straight through as `--effort`.
+        assert_eq!(effort_args(Some("high")), vec!["--effort", "high"]);
+        assert_eq!(effort_args(Some("xhigh")), vec!["--effort", "xhigh"]);
+        // "default effort" (None) contributes no args.
+        assert!(effort_args(None).is_empty());
+    }
 
     #[test]
     fn tool_target_picks_a_meaningful_field_per_tool() {
