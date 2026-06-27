@@ -431,15 +431,15 @@ fn spawn_claude(
     effort: Option<&str>,
     conductor: bool,
 ) -> Result<Child, String> {
-    // The conductor (primary) also gets Wisdom, Claude's own local epistemics MCP (all its
-    // tools; local stdio, so the blast radius is its own store). Workers are intentionally
-    // left out for now: each claude child spawns its OWN wisdom server, and ChromaDB is not
-    // built for several processes writing one store at once, so fanning Wisdom across the
-    // whole fleet awaits a concurrency check. Moving it to ALLOWED_TOOLS later is the flip.
-    let mut allowed: Vec<&str> = ALLOWED_TOOLS.to_vec();
-    if conductor {
-        allowed.push("mcp__wisdom");
-    }
+    // Wisdom (Claude's local epistemics MCP) is intentionally NOT allowlisted here. Its server
+    // warms up ChromaDB behind an exclusive single-writer store lock, so attaching it to the
+    // spawned claude child attaches slowly/unreliably (it can sit "pending"); a wisdom tool
+    // call then stalls and retries until the Thinking watchdog drops the turn. With dontAsk,
+    // leaving it off the allowlist means any wisdom call is denied immediately and the model
+    // just answers - keeping the voice loop snappy. Wisdom lives in the interactive Claude Code
+    // sessions, not Q's voice loop (ChromaDB is single-writer, so fanning it across the fleet
+    // was never viable anyway).
+    let allowed: Vec<&str> = ALLOWED_TOOLS.to_vec();
     let build = |program: &OsStr| {
         let mut c = Command::new(program);
         c.args(BASE_ARGS);
