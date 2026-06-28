@@ -23,6 +23,7 @@ export interface RendererOptions {
   dpr: number;
   targetFps?: number;
   filamentFrameStride?: number;
+  antialias?: boolean;
   initialState: QState;
   initialPalette: QPalette;
 }
@@ -536,7 +537,7 @@ export function createRenderer(opts: RendererOptions): Renderer {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     alpha: true,
-    antialias: true,
+    antialias: opts.antialias ?? true,
     powerPreference: "high-performance",
     premultipliedAlpha: false,
   });

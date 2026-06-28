@@ -23,6 +23,7 @@ import {
   type QSizePreset,
   type QPaletteValues,
 } from './jarvisOrb/states';
+import { detectGpu } from './gpu';
 import type { AvatarOptions } from './Avatar';
 import type { PaletteConfig } from '../config/config';
 import type { DeformationParams } from './deformation';
@@ -87,6 +88,43 @@ const IMMERSIVE_PRESET: QSizePreset = {
   ringSegments: 200,
   dpr: 2,
   minDpr: 1.25,
+};
+
+/**
+ * Light preset for software-WebGL machines (no GPU acceleration: SwiftShader /
+ * WARP / Remote Desktop / a VM). When every pixel is rasterized on the CPU a
+ * full-window orb pegs all cores, so this cuts particles/filaments, drops to
+ * DPR 1, and (with antialias off + a 20fps cap, both set in `mount`) keeps the
+ * orb smooth without saturating the machine.
+ */
+const LITE_PRESET: QSizePreset = {
+  ...SIZE_PRESETS.hero,
+  sceneScale: 1.05,
+  particleCount: 280,
+  filamentCount: 36,
+  ringSegments: 96,
+  dpr: 1,
+  minDpr: 1,
+};
+
+/**
+ * Per-backend render budget. The orb's render loop is otherwise uncapped, so on
+ * any machine a healthy GPU still ran it at full refresh with DPR up to 2 (4x the
+ * fragment work of DPR 1) -- capping FPS, the filament-update stride, and the DPR
+ * ceiling is the main CPU win; software mode degrades further. `setPaused` (wired
+ * to visibilitychange in tauriAdapter) stops it entirely when the window is hidden.
+ */
+interface RenderBudget {
+  preset: QSizePreset;
+  targetFps: number;
+  filamentFrameStride: number;
+  dprCeiling: number;
+  antialias: boolean;
+}
+
+const RENDER_BUDGETS: Record<'gpu' | 'software', RenderBudget> = {
+  gpu: { preset: IMMERSIVE_PRESET, targetFps: 30, filamentFrameStride: 2, dprCeiling: 1.5, antialias: true },
+  software: { preset: LITE_PRESET, targetFps: 20, filamentFrameStride: 3, dprCeiling: 1, antialias: false },
 };
 
 /** params.speed (constant per state) -> activity. Thresholds sit between the values. */
@@ -228,11 +266,23 @@ export class QOrbAvatar {
   mount(container: HTMLElement): void {
     this.container = container;
     container.appendChild(this.canvas);
-    const dpr = clamp(window.devicePixelRatio || 1, IMMERSIVE_PRESET.minDpr, IMMERSIVE_PRESET.dpr);
+
+    // Probe the WebGL backend once. Software rendering (SwiftShader / WARP, common
+    // under Remote Desktop, a VM, or a blocklisted/broken GPU driver) rasterizes
+    // the full-window orb on the CPU and pegs every core, so degrade to the light
+    // preset when there is no real GPU. Log the renderer either way for diagnosis.
+    const gpu = detectGpu();
+    console.info(`[orb] WebGL renderer: ${gpu.renderer}${gpu.software ? ' -> software, using lite mode' : ''}`);
+
+    const budget = gpu.software ? RENDER_BUDGETS.software : RENDER_BUDGETS.gpu;
+    const dpr = clamp(window.devicePixelRatio || 1, budget.preset.minDpr, budget.dprCeiling);
     this.orb = createRenderer({
       canvas: this.canvas,
-      preset: IMMERSIVE_PRESET,
+      preset: budget.preset,
       dpr,
+      targetFps: budget.targetFps,
+      filamentFrameStride: budget.filamentFrameStride,
+      antialias: budget.antialias,
       initialState: ORB_STATES.idle,
       initialPalette: this.initialPaletteValues ?? 'cyan',
     });
@@ -246,6 +296,9 @@ export class QOrbAvatar {
 
   start(): void {
     if (this.rafId !== 0 || this.disposed) return;
+    // stop() pauses the renderer's own loop; resume it so start() is symmetric
+    // (otherwise a visibility-driven stop -> start would leave the orb frozen).
+    this.orb?.setPaused(false);
     const loop = (nowMs: number): void => {
       this.rafId = requestAnimationFrame(loop);
       if (this.startTimeMs === null) this.startTimeMs = nowMs;

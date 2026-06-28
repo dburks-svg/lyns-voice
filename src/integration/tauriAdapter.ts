@@ -79,6 +79,7 @@ export interface AvatarLike extends ControllableAvatar {
   beforeRender: ((time: number) => void) | null;
   mount(container: HTMLElement): void;
   start(): void;
+  stop(): void;
   resize(width: number, height: number): void;
   dispose(): void;
 }
@@ -814,10 +815,20 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     sync();
   };
 
-  // Visibility tracking for background notifications.
+  // Visibility tracking for background notifications, and -- the CPU win -- pausing
+  // the orb's render loop entirely when the window is hidden/minimized. The orb
+  // otherwise renders full-tilt forever; while nobody can see it that is pure waste
+  // (and on software-WebGL machines it pegs every core). Only `document.hidden`
+  // (minimized / occluded / other virtual desktop) pauses; merely losing focus
+  // while still visible keeps it animating, so it never freezes on a second monitor.
   let windowFocused = !view.document.hidden;
   view.document.addEventListener('visibilitychange', () => {
     windowFocused = !view.document.hidden;
+    if (view.document.hidden) {
+      avatar.stop();
+    } else {
+      avatar.start();
+    }
   });
   // Read live each turn so the settings toggle takes effect without re-attaching
   // (absent option = default enabled).

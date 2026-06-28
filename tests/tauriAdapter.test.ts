@@ -276,6 +276,7 @@ describe('attachTauri (Claude session binding)', () => {
       beforeRender: null,
       mount() {},
       start() {},
+      stop() {},
       resize() {},
       dispose() {},
     });
@@ -434,5 +435,61 @@ describe('attachTauri (Claude session binding)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('attachTauri (visibility pauses the orb)', () => {
+  function recordingAvatar(): AvatarLike & { calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      setParams() {},
+      setGlow() {},
+      setColors() {},
+      idleRotationSpeed: 0,
+      mesh: { rotation: { x: 0, y: 0, z: 0 }, scale: { set() {} } },
+      reducedMotion: false,
+      beforeRender: null,
+      mount() {},
+      start() {
+        calls.push('start');
+      },
+      stop() {
+        calls.push('stop');
+      },
+      resize() {},
+      dispose() {},
+    };
+  }
+
+  function setHidden(value: boolean): void {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  it('stops the render loop when hidden and restarts it when visible again', () => {
+    const avatar = recordingAvatar();
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'tts_synthesize') throw new Error('no audio in test');
+      return undefined;
+    }) as InvokeFn;
+    const listen = (async () => () => {}) as unknown as ListenFn;
+
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    setHidden(false); // start visible
+    const handle = attachTauri({ root, view: window, invoke, listen, avatarFactory: () => avatar });
+
+    // attachTauri starts the loop once on mount.
+    expect(avatar.calls).toEqual(['start']);
+
+    setHidden(true);
+    expect(avatar.calls).toEqual(['start', 'stop']); // minimized -> paused
+
+    setHidden(false);
+    expect(avatar.calls).toEqual(['start', 'stop', 'start']); // restored -> resumed
+
+    handle.dispose();
+    setHidden(false); // reset for other tests
   });
 });
