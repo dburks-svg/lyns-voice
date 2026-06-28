@@ -71,7 +71,7 @@ impl Transcriber {
 
     /// Transcribe mono 16 kHz f32 samples in [-1, 1].
     pub fn transcribe_f32(&self, samples: &[f32]) -> Result<String, String> {
-        let _serialize = self.infer_lock.lock().map_err(|_| "infer lock poisoned")?;
+        let _serialize = self.infer_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut state = self
             .ctx
             .create_state()
@@ -341,7 +341,7 @@ pub async fn stt_start(app: AppHandle) -> Result<(), String> {
     let app2 = app.clone();
     let transcriber = tauri::async_runtime::spawn_blocking(move || -> Result<Arc<Transcriber>, String> {
         let state = app2.state::<SttState>();
-        let mut guard = state.transcriber.lock().map_err(lock_err)?;
+        let mut guard = state.transcriber.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(t) = guard.as_ref() {
             return Ok(Arc::clone(t));
         }
@@ -362,7 +362,7 @@ pub async fn stt_start(app: AppHandle) -> Result<(), String> {
     // webview's frames reach it only through this channel (non-blocking enqueue).
     let (tx, rx) = std::sync::mpsc::channel::<WorkerMsg>();
     let state = app.state::<SttState>();
-    *state.worker.lock().map_err(lock_err)? = Some(tx);
+    *state.worker.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     let hangover = Arc::clone(&state.hangover);
     let app_worker = app.clone();
     std::thread::spawn(move || {
@@ -395,7 +395,7 @@ pub fn stt_push_frame(app: AppHandle, request: tauri::ipc::Request<'_>) -> Resul
         .chunks_exact(2)
         .map(|b| i16::from_le_bytes([b[0], b[1]]))
         .collect();
-    if let Some(tx) = app.state::<SttState>().worker.lock().map_err(lock_err)?.as_ref() {
+    if let Some(tx) = app.state::<SttState>().worker.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         let _ = tx.send(WorkerMsg::Frames(pcm)); // worker gone => drop frames
     }
     Ok(())
@@ -404,7 +404,7 @@ pub fn stt_push_frame(app: AppHandle, request: tauri::ipc::Request<'_>) -> Resul
 /// Force-finalize the current utterance now (push-to-talk release).
 #[tauri::command]
 pub fn stt_finalize(app: AppHandle) -> Result<(), String> {
-    if let Some(tx) = app.state::<SttState>().worker.lock().map_err(lock_err)?.as_ref() {
+    if let Some(tx) = app.state::<SttState>().worker.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         let _ = tx.send(WorkerMsg::Finalize);
     }
     Ok(())
@@ -427,7 +427,7 @@ pub fn stt_set_vad_hangover(app: AppHandle, ms: u32) -> Result<(), String> {
 #[tauri::command]
 pub fn stt_stop(app: AppHandle) -> Result<(), String> {
     let state = app.state::<SttState>();
-    let mut guard = state.worker.lock().map_err(lock_err)?;
+    let mut guard = state.worker.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(tx) = guard.as_ref() {
         let _ = tx.send(WorkerMsg::Finalize);
     }
@@ -622,10 +622,6 @@ fn try_download(app: &AppHandle, dest: &Path, tmp: &Path) -> Result<(), String> 
         ModelStatus { state: "ready", downloaded, total },
     );
     Ok(())
-}
-
-fn lock_err<T>(_: std::sync::PoisonError<T>) -> String {
-    "stt state lock poisoned".into()
 }
 
 #[cfg(test)]

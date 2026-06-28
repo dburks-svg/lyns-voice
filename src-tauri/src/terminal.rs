@@ -90,7 +90,7 @@ pub async fn terminal_spawn(
     let generation = 1u64;
     {
         let state = app.state::<TerminalState>();
-        let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+        let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.insert(
             id.clone(),
             TerminalSession { writer, master: pair.master, child, generation },
@@ -121,10 +121,8 @@ pub async fn terminal_spawn(
         if is_session_alive(&app2, &id2, generation) {
             let _ = app2.emit(&format!("terminal://{}/exit", id2), TermExit { id: id2.clone() });
             let state = app2.state::<TerminalState>();
-            let guard = state.sessions.lock();
-            if let Ok(mut sessions) = guard {
-                sessions.remove(&id2);
-            }
+            let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            sessions.remove(&id2);
         }
     });
 
@@ -134,7 +132,7 @@ pub async fn terminal_spawn(
 #[tauri::command]
 pub async fn terminal_write(app: AppHandle, id: String, data: String) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     let session = sessions.get_mut(&id).ok_or("terminal session not found")?;
     session
         .writer
@@ -147,7 +145,7 @@ pub async fn terminal_write(app: AppHandle, id: String, data: String) -> Result<
 #[tauri::command]
 pub async fn terminal_kill(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    let mut sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+    let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(mut session) = sessions.remove(&id) {
         session.generation = 0; // invalidate the reader
         let _ = session.child.kill();
@@ -158,7 +156,7 @@ pub async fn terminal_kill(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
     let state = app.state::<TerminalState>();
-    let sessions = state.sessions.lock().map_err(|_| "terminal lock poisoned")?;
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(session) = sessions.get(&id) {
         session
             .master
@@ -170,9 +168,6 @@ pub async fn terminal_resize(app: AppHandle, id: String, cols: u16, rows: u16) -
 
 fn is_session_alive(app: &AppHandle, id: &str, gen: u64) -> bool {
     let state = app.state::<TerminalState>();
-    let guard = state.sessions.lock();
-    match guard {
-        Ok(sessions) => sessions.get(id).is_some_and(|s| s.generation == gen),
-        Err(_) => false,
-    }
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    sessions.get(id).is_some_and(|s| s.generation == gen)
 }

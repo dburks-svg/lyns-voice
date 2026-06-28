@@ -39,7 +39,8 @@ const MODEL_REMOTE: &str = "onnx/model_fp16.onnx";
 const MODEL_FILE: &str = "kokoro-fp16.onnx";
 // SHA-256 of model_fp16.onnx (the file verified to load + speak). Empty would skip
 // the check; pinning restores supply-chain integrity like the STT model. The
-// downloader only hashes a clean (non-resumed) download.
+// downloader verifies this on every download, including resumed ones (it re-hashes
+// the on-disk prefix before appending, mirroring stt.rs).
 const MODEL_SHA256: &str = "ba4527a874b42b21e35f468c10d326fdff3c7fc8cac1f85e9eb6c0dfc35c334a";
 
 // The phoneme->id vocab lives in the ORIGINAL Kokoro repo's config.json; the
@@ -106,7 +107,7 @@ impl Synthesizer {
     fn synthesize(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>, String> {
         // 1. text -> IPA phonemes (misaki; espeak feature is OFF so this is GPL-free).
         let phonemes = {
-            let g = self.g2p.lock().map_err(|_| "g2p lock poisoned")?;
+            let g = self.g2p.lock().unwrap_or_else(|e| e.into_inner());
             g.g2p(text).map_err(|e| format!("g2p: {e}"))?.0
         };
 
@@ -153,7 +154,7 @@ impl Synthesizer {
             .map_err(|e| format!("speed tensor: {e}"))?;
 
         // run() takes &mut self; the lock also serializes inference on the CPU.
-        let mut session = self.session.lock().map_err(|_| "session lock poisoned")?;
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         let outputs = session
             .run(ort::inputs![
                 "input_ids" => ids_t,
@@ -172,7 +173,7 @@ impl Synthesizer {
     /// The 256-dim style row for `voice` at sequence length `n_tokens` (clamped to
     /// the table's last row). Downloads + caches the voice on first use.
     fn voice_style(&self, voice: &str, n_tokens: usize) -> Result<Vec<f32>, String> {
-        let mut cache = self.voices.lock().map_err(|_| "voices lock poisoned")?;
+        let mut cache = self.voices.lock().unwrap_or_else(|e| e.into_inner());
         if !cache.contains_key(voice) {
             ensure_voice(&self.app, &self.models_dir, voice)?;
             let data = load_voice_file(&self.models_dir, voice)?;
@@ -212,7 +213,7 @@ impl KokoroState {
     /// The lock is held across the (possibly long) first load so two concurrent
     /// callers cannot both download; subsequent calls are a cheap `Arc` clone.
     fn get_or_load(&self, app: &AppHandle) -> Result<Arc<Synthesizer>, String> {
-        let mut guard = self.inner.lock().map_err(|_| "kokoro state poisoned")?;
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(s) = guard.as_ref() {
             return Ok(s.clone());
         }
@@ -401,14 +402,21 @@ fn try_download(
 
     // Resume only when we had a partial AND the server honored the Range (206);
     // a 200 (Range ignored) restarts clean; anything else aborts the attempt.
-    let (mut downloaded, total, mut file) = if resume_from > 0 && status == StatusCode::PARTIAL_CONTENT {
+    let (mut downloaded, total, mut file, mut hasher) = if resume_from > 0 && status == StatusCode::PARTIAL_CONTENT {
         let total = resume_from + resp.content_length().unwrap_or(0);
+        // Re-hash the bytes already on disk so the final checksum still covers the whole
+        // file (mirrors stt.rs), making a resumed download as trustworthy as a clean one.
+        let mut hasher = Sha256::new();
+        if expected_sha.is_some() {
+            let existing = std::fs::read(tmp).map_err(|e| format!("read partial: {e}"))?;
+            hasher.update(&existing);
+        }
         let f = std::fs::OpenOptions::new().append(true).open(tmp).map_err(|e| format!("open part: {e}"))?;
-        (resume_from, total, f)
+        (resume_from, total, f, hasher)
     } else if status.is_success() {
         let total = resp.content_length().unwrap_or(0);
         let f = std::fs::File::create(tmp).map_err(|e| format!("create part: {e}"))?;
-        (0u64, total, f)
+        (0u64, total, f, Sha256::new())
     } else {
         return Err(format!("{label} download HTTP {status}"));
     };
@@ -417,19 +425,18 @@ fn try_download(
         return Err(format!("{label} too large ({total} bytes)"));
     }
 
-    let mut hasher = Sha256::new();
-    // When resuming we cannot rehash the existing prefix, so only checksum when we
-    // started clean. (A resumed download still verifies via the size check above.)
-    let can_hash = expected_sha.is_some() && downloaded == 0;
+    // Hash the stream when there is a checksum to verify (always, clean or resumed: a
+    // resume pre-hashed the prefix above), or to log a digest for a clean unpinned file.
+    let hashing = expected_sha.is_some() || resume_from == 0;
     let mut reader = resp;
     let mut buf = [0u8; 64 * 1024];
-    let mut last_emit = 0u64;
+    let mut last_emit = downloaded;
     loop {
         let n = reader.read(&mut buf).map_err(|e| format!("{label} read: {e}"))?;
         if n == 0 {
             break;
         }
-        if can_hash {
+        if hashing {
             hasher.update(&buf[..n]);
         }
         file.write_all(&buf[..n]).map_err(|e| format!("{label} write: {e}"))?;
@@ -444,17 +451,16 @@ fn try_download(
     }
     drop(file);
 
-    if let (Some(expected), true) = (expected_sha, can_hash) {
+    if let Some(expected) = expected_sha {
+        // expected_sha set => the whole file was hashed (clean, or resume pre-hashed).
         let digest = format!("{:x}", hasher.finalize());
         if !digest.eq_ignore_ascii_case(expected) {
             let _ = std::fs::remove_file(tmp);
             return Err(format!("{label} checksum mismatch (got {digest})"));
         }
-    } else if expected_sha.is_none() {
-        // Log the digest so a model can be pinned later (only meaningful clean).
-        if can_hash {
-            log::info!("[tts] {label} sha256 = {:x}", hasher.finalize());
-        }
+    } else if resume_from == 0 {
+        // Clean unpinned download: log the digest so this artifact can be pinned later.
+        log::info!("[tts] {label} sha256 = {:x}", hasher.finalize());
     }
 
     std::fs::rename(tmp, dest).map_err(|e| format!("{label} finalize: {e}"))?;

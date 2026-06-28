@@ -971,30 +971,10 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         claudeConnected = false;
         signals.pendingResponse = false;
         sync();
-        if (!userDisconnected && shouldAutoReconnect() && lastDir && reconnectAttempts < MAX_RECONNECT) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
-          reconnectAttempts++;
-          options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            void startClaude(lastDir).then((ok) => {
-              if (!ok && reconnectAttempts < MAX_RECONNECT) {
-                // startClaude failed without a ready event; trigger next attempt
-                const nextDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
-                reconnectAttempts++;
-                options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-                reconnectTimer = setTimeout(() => {
-                  reconnectTimer = null;
-                  void startClaude(lastDir);
-                }, nextDelay);
-              } else if (!ok) {
-                options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-              }
-            });
-          }, delay);
-        } else if (!userDisconnected && shouldAutoReconnect() && reconnectAttempts >= MAX_RECONNECT) {
-          options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
-        }
+        // Single source of reconnect scheduling: whether the drop surfaced as this
+        // ready{active:false} event or as a failed startClaude retry, exactly one timer
+        // is ever in flight (see scheduleReconnect), so attempts cannot double-count.
+        scheduleReconnect();
       }
     });
   }
@@ -1004,6 +984,29 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       un();
     }
     claudeUnlisteners = [];
+  }
+
+  // Schedule one reconnect attempt with exponential backoff. Idempotent: if a timer is
+  // already pending it is a no-op, so the ready{active:false} event and a failed
+  // startClaude retry cannot each schedule the next attempt (the old double-count bug).
+  function scheduleReconnect(): void {
+    if (reconnectTimer !== null) return; // a reconnect is already pending
+    if (userDisconnected || !shouldAutoReconnect() || !lastDir) return;
+    if (reconnectAttempts >= MAX_RECONNECT) {
+      options.onReconnectStatus?.({ attempting: false, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+      return;
+    }
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+    reconnectAttempts++;
+    options.onReconnectStatus?.({ attempting: true, attempt: reconnectAttempts, maxAttempts: MAX_RECONNECT });
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void startClaude(lastDir).then((ok) => {
+        // A failure that did not emit ready{active:false} reschedules here; one that did
+        // is handled by that event. The reconnectTimer===null guard dedupes the two.
+        if (!ok) scheduleReconnect();
+      });
+    }, delay);
   }
 
   const cancelReconnect = (): void => {

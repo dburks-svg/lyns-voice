@@ -594,7 +594,12 @@ fn handle_event(app: &AppHandle, id: &str, line: &str, state: &mut StreamState) 
     }
     let v: Value = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(_) => return,
+        Err(e) => {
+            // A first-party sidecar should never emit a malformed line; log it so a
+            // stuck turn (no turn-end) is diagnosable instead of a silent drop.
+            log::warn!("[claude {id}] skipping malformed NDJSON line: {e}");
+            return;
+        }
     };
     match v.get("type").and_then(Value::as_str) {
         Some("assistant") => emit_assistant(app, id, &v),
