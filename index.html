@@ -96,18 +96,20 @@
         </div>
         <div class="settings-section">
           <span class="settings-label">mic</span>
-          <div class="hud-group settings-row">
-            <button id="mic-btn">talk</button>
-            <select id="set-mic" class="settings-select"><option value="">default mic</option></select>
+          <div class="hud-group settings-col">
+            <div class="hud-group settings-row">
+              <button id="mic-btn">talk</button>
+              <select id="set-mic" class="settings-select"><option value="">default mic</option></select>
+            </div>
+            <label class="settings-check">
+              <input id="set-bargein" type="checkbox" />
+              voice barge-in (speak to interrupt)
+            </label>
+            <label class="settings-check">
+              <input id="set-wakeword" type="checkbox" />
+              wake word (&quot;hey Q&quot;)
+            </label>
           </div>
-          <label class="settings-check">
-            <input id="set-bargein" type="checkbox" />
-            voice barge-in (speak to interrupt)
-          </label>
-          <label class="settings-check">
-            <input id="set-wakeword" type="checkbox" />
-            wake word (&quot;hey Q&quot;)
-          </label>
         </div>
         <div class="settings-section">
           <span class="settings-label">voice</span>
