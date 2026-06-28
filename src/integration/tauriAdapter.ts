@@ -435,6 +435,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // Bumped on every stop/clear so a synth that resolves AFTER a barge-in/turn-cut
   // is abandoned rather than played.
   let speechGen = 0;
+  // True from the moment a synth starts until its playback starts. Together with
+  // mediaTts.isSpeaking (true during playback) it serializes the pump: streamed
+  // replies call pumpSpeech once PER sentence, and without this a sentence arriving
+  // during the first synth (isSpeaking still false) would start a second, parallel
+  // synth, shift itself out of the queue, then be dropped by the isSpeaking guard -
+  // so only the first sentence ever played.
+  let pumping = false;
   // Fire the "voice unavailable" notice at most once per reply (not once per chunk).
   let ttsNoticeFired = false;
   // Phase B streaming: the reply text shown in the caption as sentences are spoken,
@@ -451,6 +458,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     speechQueue.length = 0;
     prefetch = null;
     speechGen++;
+    pumping = false; // a stale in-flight synth no-ops on the gen check; let a new turn pump
     deltaSeen = false;
     streamMuted = true; // ignore any late deltas from the aborted turn until next turn
     // (the streamer's stale buffer is cleared at the next turn's thinking:true)
@@ -504,7 +512,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // failed chunk is logged and skipped rather than retried elsewhere. Hoisted so
   // onSpeakingEnd (declared above) can call it.
   function pumpSpeech(): void {
-    if (mediaTts.isSpeaking) {
+    if (pumping || mediaTts.isSpeaking) {
       return;
     }
     const gen = speechGen;
@@ -518,11 +526,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       sync();
       return;
     }
+    pumping = true; // own the synth->play-start window so streamed chunks can't overlap
     void pending.then((buf) => {
-      // A barge-in / turn-cut (or a newer pump) landed while we were synthesizing.
-      if (gen !== speechGen || mediaTts.isSpeaking) {
+      // A barge-in / turn-cut landed while synthesizing; clearSpeechQueue reset `pumping`.
+      if (gen !== speechGen) {
         return;
       }
+      pumping = false; // synth done; playBuffer below flips isSpeaking on synchronously
       if (buf === null) {
         noticeTtsUnavailable();
         pumpSpeech(); // skip the failed chunk; keep the reply moving
