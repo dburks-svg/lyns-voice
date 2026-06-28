@@ -112,6 +112,7 @@ async function bootstrap(): Promise<void> {
     autoReconnect: () => settings.autoReconnect,
     notifyOnTurnEnd: () => settings.notifyOnTurnEnd,
     bargeIn: () => settings.bargeIn,
+    wakeWordEnabled: () => settings.wakeWord,
     onReconnectStatus: (status) => {
       const cap = document.getElementById('caption');
       if (!cap) return;
@@ -169,6 +170,13 @@ async function bootstrap(): Promise<void> {
   };
   micButton?.addEventListener('click', toggleMic);
   micFab?.addEventListener('click', toggleMic);
+
+  // Wake mode: start listening on launch so "hey Q" is heard without a tap. Guarded
+  // on `onboarded` so a brand-new user finishes onboarding (and the one-time model
+  // download note) before the mic auto-engages.
+  if (settings.wakeWord && settings.onboarded) {
+    void handle.startListening().then((ok) => reflectListening(ok));
+  }
 
   // Phase 3: connect a Claude Code session in a project dir. Once connected,
   // spoken utterances are sent to Claude and the reply is spoken back with mood.
@@ -813,6 +821,16 @@ function wireSettings(settings: AppSettings): void {
   if (bargeCheck) bargeCheck.checked = settings.bargeIn;
   bargeCheck?.addEventListener('change', () => {
     settings.bargeIn = bargeCheck.checked;
+    saveSettings(settings);
+  });
+
+  const wakeCheck = document.getElementById('set-wakeword') as HTMLInputElement | null;
+  if (wakeCheck) wakeCheck.checked = settings.wakeWord;
+  wakeCheck?.addEventListener('change', () => {
+    // The gating is read live via the wakeWordEnabled getter; the mic is already
+    // listening (auto-started on launch), so toggling only needs to persist. (A full
+    // off->on while the mic is stopped takes effect on the next launch or mic tap.)
+    settings.wakeWord = wakeCheck.checked;
     saveSettings(settings);
   });
 

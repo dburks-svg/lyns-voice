@@ -30,6 +30,8 @@ import { prefersReducedMotion, safeSetText } from './dom';
 import { deriveState, type VoiceSignals } from './signals';
 import { createConductorVoice } from './conductorVoice';
 import { parseConductor } from './conductorProtocol';
+import { createReplyStreamer } from './replyStreamer';
+import { matchHeyQ } from './wakeWord';
 
 /** Args accepted by `invoke`: a JSON record, or a raw binary body (audio frames). */
 type InvokeArgs = Record<string, unknown> | ArrayBuffer | Uint8Array;
@@ -288,6 +290,9 @@ export interface TauriAdapterOptions {
   /** Voice barge-in: a spoken utterance during a reply cuts it off. Getter so the
    *  settings toggle takes effect live (default treated as off when absent). */
   bargeIn?: () => boolean;
+  /** Wake word enabled: require a leading "hey Q" before an utterance acts on Q
+   *  (continuous listening). Getter so the settings toggle takes effect live. */
+  wakeWordEnabled?: () => boolean;
 }
 
 export interface TauriHandle {
@@ -432,6 +437,13 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   let speechGen = 0;
   // Fire the "voice unavailable" notice at most once per reply (not once per chunk).
   let ttsNoticeFired = false;
+  // Phase B streaming: the reply text shown in the caption as sentences are spoken,
+  // whether any delta arrived this turn, a mute flag so a barged/cancelled turn's
+  // late deltas are ignored, and the per-turn sentence streamer (assigned below,
+  // once the speech pump exists).
+  let captionAccum = '';
+  let deltaSeen = false;
+  let streamMuted = false;
 
   // Drop all pending + prefetched speech (call before mediaTts.stop() at every
   // barge-in / turn-cut site so the in-flight prefetch can't play afterwards).
@@ -439,6 +451,9 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     speechQueue.length = 0;
     prefetch = null;
     speechGen++;
+    deltaSeen = false;
+    streamMuted = true; // ignore any late deltas from the aborted turn until next turn
+    // (the streamer's stale buffer is cleared at the next turn's thinking:true)
   };
   const noticeTtsUnavailable = (): void => {
     console.warn('[tauri-tts] native synthesis failed; caption shown without audio');
@@ -569,6 +584,20 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     timer: view,
   });
 
+  // Phase B: turn streamed assistant text deltas into spoken sentences as they
+  // arrive. Reuses the same speech pump as speak()/the conductor, so pipelining,
+  // barge-in and turn-taking all apply unchanged; onChunk text is already
+  // mood/marker-stripped by the streamer.
+  const replyStreamer = createReplyStreamer({
+    onMood: (m) => mood.setMood(m),
+    onChunk: (chunk) => {
+      captionAccum = captionAccum ? `${captionAccum} ${chunk}` : chunk;
+      safeSetText(options.caption ?? null, captionAccum);
+      speechQueue.push(...splitForSpeech(chunk));
+      pumpSpeech();
+    },
+  });
+
   // --- STT (Phase 2): local Whisper + VAD auto-send-on-pause ----------------
   const listen = options.listen ?? defaultListen;
 
@@ -637,21 +666,61 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     return false;
   }
 
+  // Wake mode: keep the floor closed until "hey Q" opens it. A bare "hey Q" arms Q so
+  // the NEXT utterance is the command; the arm expires after a short window.
+  let wakeArmed = false;
+  let wakeArmTimer: ReturnType<typeof setTimeout> | null = null;
+  const WAKE_ARM_MS = 8000;
+  const disarmWake = (): void => {
+    wakeArmed = false;
+    if (wakeArmTimer !== null) {
+      clearTimeout(wakeArmTimer);
+      wakeArmTimer = null;
+    }
+  };
+  const armWake = (): void => {
+    wakeArmed = true;
+    if (wakeArmTimer !== null) clearTimeout(wakeArmTimer);
+    wakeArmTimer = setTimeout(() => {
+      wakeArmed = false;
+      wakeArmTimer = null;
+    }, WAKE_ARM_MS);
+  };
+
   addListener<{ text: string }>('stt://final', (p) => {
     const text = (p.text ?? '').trim();
     if (!text) {
       return;
     }
-    if (claudeConnected) {
-      // Voice barge-in (opt-in): if Q is mid-reply, cut him off and take the floor.
-      if (options.bargeIn?.() && signals.speaking) {
-        interrupt();
+    // Wake gating: with wake mode on and Q not already armed, an utterance must start
+    // with "hey Q" to be heard. "hey Q <command>" runs in one breath; a bare "hey Q"
+    // arms Q (and chirps "Yes?") so the next utterance is taken as the command.
+    let command = text;
+    if (options.wakeWordEnabled?.() && !wakeArmed) {
+      const wake = matchHeyQ(text);
+      if (!wake.woke) {
+        return; // ambient speech without the wake phrase; ignore it
       }
-      submitToClaude(text);
+      if (!wake.command) {
+        armWake();
+        safeSetText(options.caption ?? null, 'Yes?');
+        return;
+      }
+      command = wake.command;
+    }
+    disarmWake();
+    if (claudeConnected) {
+      // Voice barge-in (opt-in): if Q is mid-reply (speaking) or still generating
+      // (thinking), cancel that turn before taking the floor, so its streamed deltas
+      // stop at the source and cannot leak into the new turn.
+      if (options.bargeIn?.() && (signals.speaking || signals.pendingResponse)) {
+        cancelClaude();
+      }
+      submitToClaude(command);
     } else {
-      safeSetText(options.caption ?? null, text);
-      options.onTranscript?.('user', text); // HUD chat log
-      options.onUtterance?.(text);
+      safeSetText(options.caption ?? null, command);
+      options.onTranscript?.('user', command); // HUD chat log
+      options.onUtterance?.(command);
     }
   });
   let dlLast = 0;
@@ -739,6 +808,16 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // Read live each turn so the settings toggle takes effect without re-attaching
   // (absent option = default enabled).
   const shouldNotifyOnTurnEnd = (): boolean => options.notifyOnTurnEnd?.() !== false;
+  // Ping the user when a reply finishes while the window is backgrounded.
+  const notifyTurnEndIfBackground = (): void => {
+    if (windowFocused || !shouldNotifyOnTurnEnd()) return;
+    void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
+      sendNotification({ title: 'Q', body: 'Response ready.' });
+    }).catch(() => undefined);
+    void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      void getCurrentWindow().requestUserAttention(2);
+    }).catch(() => undefined);
+  };
 
   // --- Claude bridge (Phase 3): the full voice loop -------------------------
   // onUtterance -> claude_submit -> Thinking -> spoken reply (with mood) -> idle.
@@ -783,6 +862,16 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       return conducted.stripped;
     };
     wire<{ active: boolean }>('thinking', (p) => {
+      if (p.active) {
+        // Turn start: reset the streamer + per-turn caption/mood (neutral until a
+        // <<mood:...>> streams) and re-arm the once-per-reply voice-unavailable notice.
+        replyStreamer.reset();
+        captionAccum = '';
+        deltaSeen = false;
+        streamMuted = false;
+        ttsNoticeFired = false;
+        mood.setMood('neutral');
+      }
       signals.pendingResponse = p.active;
       sync();
     });
@@ -799,15 +888,25 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
         options.onStream?.(p);
       }
     });
+    // Phase B: incremental assistant text. Feed the streamer, which speaks complete
+    // sentences as they arrive (muted while a barged/cancelled turn drains).
+    wire<{ text: string }>('delta', (p) => {
+      if (streamMuted) return;
+      deltaSeen = true;
+      replyStreamer.push(p.text ?? '');
+    });
     wire<ClaudeUsage>('usage', (p) => options.onUsage?.(p));
     wire<{ text: string; is_error: boolean }>('turn-end', (p) => {
       const text = (p.text ?? '').trim();
+      const wasStreaming = deltaSeen && !streamMuted;
       if (!text || p.is_error) {
         // Nothing to speak: clear Thinking now; surface an error reply as a caption.
         signals.pendingResponse = false;
         if (text && p.is_error) {
           safeSetText(options.caption ?? null, text);
         }
+        replyStreamer.reset();
+        deltaSeen = false;
         dispatchedDirectives.clear();
         sync();
         return;
@@ -816,6 +915,26 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       // reply not already dispatched while streaming; they are stripped before speaking.
       const speakable = dispatchConductor(text).trim();
       dispatchedDirectives.clear(); // turn over; reset the per-turn dedup
+      if (streamMuted) {
+        // The turn was barged-in / cancelled: drop its tail, do not speak.
+        replyStreamer.reset();
+        deltaSeen = false;
+        return;
+      }
+      if (wasStreaming) {
+        // Already spoken sentence-by-sentence as it streamed: flush the trailing
+        // partial, log the full reply once, and do NOT re-speak it.
+        replyStreamer.flush();
+        deltaSeen = false;
+        const logged = parseMoodMarker(speakable).stripped;
+        if (logged) options.onTranscript?.('q', logged);
+        if (!signals.speaking && speechQueue.length === 0 && !prefetch) {
+          signals.pendingResponse = false; // reply was only markers/empty; settle
+          sync();
+        }
+        notifyTurnEndIfBackground();
+        return;
+      }
       if (!speakable) {
         // Q only emitted directives (nothing to say): clear Thinking so the orb settles.
         signals.pendingResponse = false;
@@ -825,14 +944,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       // Leave pendingResponse true (Thinking) until onSpeakingStart flips it to
       // Speaking, so there is no idle flicker between Thinking and the spoken reply.
       void speak(speakable);
-      if (!windowFocused && shouldNotifyOnTurnEnd()) {
-        void import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
-          sendNotification({ title: 'Q', body: 'Response ready.' });
-        }).catch(() => undefined);
-        void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-          void getCurrentWindow().requestUserAttention(2);
-        }).catch(() => undefined);
-      }
+      notifyTurnEndIfBackground();
     });
     wire<{ active: boolean; cwd: string }>('ready', (p) => {
       if (p.active) {

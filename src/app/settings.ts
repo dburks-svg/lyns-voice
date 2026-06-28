@@ -26,6 +26,9 @@ export interface AppSettings {
   notifyOnTurnEnd: boolean;
   /** Voice barge-in: a spoken utterance during a reply cuts it off (default off). */
   bargeIn: boolean;
+  /** Wake word: listen continuously and only act on utterances that start with
+   *  "hey Q" (default on). Turn off to use plain tap-to-talk. */
+  wakeWord: boolean;
   /** Whether the first-run onboarding overlay has been dismissed. */
   onboarded: boolean;
   /** claude --model for new sessions (empty = claude's default). */
@@ -79,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoReconnect: true,
   notifyOnTurnEnd: true,
   bargeIn: false,
+  wakeWord: true,
   onboarded: false,
   model: '',
   effort: '',

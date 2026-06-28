@@ -94,6 +94,14 @@ struct StreamLine {
     text: String,
 }
 
+/// One incremental assistant text delta (Phase B), emitted only with
+/// `--include-partial-messages`. Lets the webview speak sentence-by-sentence as the
+/// reply generates instead of waiting for `turn-end`.
+#[derive(Clone, Serialize)]
+struct Delta {
+    text: String,
+}
+
 /// File diff from an Edit or Write tool (drives the diff viewer panel).
 #[derive(Clone, Serialize)]
 struct ToolDiff {
@@ -121,6 +129,10 @@ const BASE_ARGS: &[&str] = &[
     "--output-format",
     "stream-json",
     "--verbose",
+    // Phase B: stream partial assistant text deltas (content_block_delta) so the
+    // webview speaks sentence-by-sentence as the reply generates. Requires --print
+    // + stream-json (present); the complete `assistant` + `result` events still come.
+    "--include-partial-messages",
     // SECURITY (Phase 4): `dontAsk` is non-interactive (it never blocks on a
     // permission dialog, so the headless sidecar cannot hang) AND it DENIES any
     // tool not on `--allowedTools` below, replacing the old blanket
@@ -361,11 +373,12 @@ async fn launch_session(
     let id2 = id.clone();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
+        let mut sstate = StreamState::default();
         while let Ok(Some(line)) = lines.next_line().await {
             if !is_current(&app2, &id2, my_gen).await {
                 return; // superseded by a restart/cancel/stop; stay silent
             }
-            handle_event(&app2, &id2, &line);
+            handle_event(&app2, &id2, &line, &mut sstate);
         }
         // stdout closed => the child ended. Report the disconnect only if we are
         // still the current session, and remove ourselves from the map. Reap the
@@ -513,12 +526,68 @@ fn spawn_claude(
     }
 }
 
+/// Per-reader state for partial-message streaming: maps each content-block `index`
+/// to whether it is a spoken TEXT block (vs a thinking/tool_use block, whose deltas
+/// must NOT be spoken). Reset at each `message_start` / `result`.
+#[derive(Default)]
+struct StreamState {
+    text_blocks: std::collections::HashMap<u64, bool>,
+}
+
+/// Decide what (if anything) a single partial `stream_event`'s inner event yields as
+/// spoken text, updating per-block type tracking. Pure (no emit) so it is unit-tested.
+/// Only `text_delta`s on a block whose `content_block_start` was `type:"text"` speak;
+/// thinking deltas and tool `input_json_delta`s return None.
+fn stream_delta_text(ev: &Value, state: &mut StreamState) -> Option<String> {
+    match ev.get("type").and_then(Value::as_str) {
+        Some("message_start") => {
+            state.text_blocks.clear();
+            None
+        }
+        Some("content_block_start") => {
+            if let Some(idx) = ev.get("index").and_then(Value::as_u64) {
+                let is_text = ev
+                    .get("content_block")
+                    .and_then(|c| c.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("text");
+                state.text_blocks.insert(idx, is_text);
+            }
+            None
+        }
+        Some("content_block_delta") => {
+            let idx = ev.get("index").and_then(Value::as_u64).unwrap_or(u64::MAX);
+            if state.text_blocks.get(&idx).copied() != Some(true) {
+                return None; // not a spoken text block (thinking / tool_use / unknown)
+            }
+            let delta = ev.get("delta")?;
+            if delta.get("type").and_then(Value::as_str) != Some("text_delta") {
+                return None; // e.g. input_json_delta for a tool call
+            }
+            let text = delta.get("text").and_then(Value::as_str)?;
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Forward a partial `stream_event` to the webview as a `claude://{id}/delta` chunk.
+fn emit_stream_delta(app: &AppHandle, id: &str, v: &Value, state: &mut StreamState) {
+    let ev = match v.get("event") {
+        Some(e) => e,
+        None => return,
+    };
+    if let Some(text) = stream_delta_text(ev, state) {
+        let _ = app.emit(&format!("claude://{id}/delta"), Delta { text });
+    }
+}
+
 /// Tolerant parse of one stdout NDJSON line for session `id`. `result` drives the
 /// four-state UI (turn-end) plus the telemetry (usage); `assistant` feeds the
 /// activity HUD from its tool_use entries. Unknown events keep the current Thinking
 /// state. On a normal reply we do NOT emit a standalone thinking:false: turn-end ->
 /// speak() drives the Thinking->Speaking handoff with no intervening idle frame.
-fn handle_event(app: &AppHandle, id: &str, line: &str) {
+fn handle_event(app: &AppHandle, id: &str, line: &str, state: &mut StreamState) {
     let line = line.trim();
     if line.is_empty() {
         return;
@@ -530,7 +599,9 @@ fn handle_event(app: &AppHandle, id: &str, line: &str) {
     match v.get("type").and_then(Value::as_str) {
         Some("assistant") => emit_assistant(app, id, &v),
         Some("user") => emit_tool_results(app, id, &v),
+        Some("stream_event") => emit_stream_delta(app, id, &v, state),
         Some("result") => {
+            state.text_blocks.clear(); // turn over; next turn re-tracks block types
             emit_usage(app, id, &v);
             let text = v
                 .get("result")
@@ -749,6 +820,59 @@ mod tests {
         // half-enabled. Guard the enablement against an accidental removal.
         assert!(ALLOWED_TOOLS.contains(&"Workflow"));
         assert!(ALLOWED_TOOLS.contains(&"Monitor"));
+    }
+
+    #[test]
+    fn stream_delta_text_speaks_only_text_blocks() {
+        use super::{stream_delta_text, StreamState};
+        let mut st = StreamState::default();
+        // A text block: start tracks it; its text_delta is spoken.
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_start","index":0,"content_block":{"type":"text"}}),
+                &mut st
+            ),
+            None
+        );
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}),
+                &mut st
+            ),
+            Some("Hello".to_string())
+        );
+        // A thinking block: its text_delta must NOT be spoken.
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_start","index":1,"content_block":{"type":"thinking"}}),
+                &mut st
+            ),
+            None
+        );
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"reasoning"}}),
+                &mut st
+            ),
+            None
+        );
+        // A tool input_json_delta is skipped (not spoken text).
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{"}}),
+                &mut st
+            ),
+            None
+        );
+        // message_start resets tracking, so a later delta on index 0 no longer speaks.
+        assert_eq!(stream_delta_text(&json!({"type":"message_start"}), &mut st), None);
+        assert_eq!(
+            stream_delta_text(
+                &json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}),
+                &mut st
+            ),
+            None
+        );
     }
 
     #[test]

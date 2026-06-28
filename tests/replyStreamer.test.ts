@@ -1,0 +1,119 @@
+import { describe, it, expect } from 'vitest';
+import { createReplyStreamer } from '../src/integration/replyStreamer';
+
+function collect() {
+  const chunks: string[] = [];
+  const moods: string[] = [];
+  const s = createReplyStreamer({
+    onChunk: (t) => chunks.push(t),
+    onMood: (m) => moods.push(m),
+  });
+  return { s, chunks, moods };
+}
+
+describe('createReplyStreamer', () => {
+  it('emits complete sentences as they arrive and holds the partial tail', () => {
+    const { s, chunks } = collect();
+    s.push('Hello there. How are ');
+    expect(chunks).toEqual(['Hello there.']);
+    s.push('you today? Bye');
+    expect(chunks).toEqual(['Hello there.', 'How are you today?']);
+    s.flush();
+    expect(chunks).toEqual(['Hello there.', 'How are you today?', 'Bye']);
+  });
+
+  it('reassembles a sentence split across many deltas', () => {
+    const { s, chunks } = collect();
+    for (const d of ['The ', 'quick ', 'brown ', 'fox.', ' Next. ']) s.push(d);
+    expect(chunks).toEqual(['The quick brown fox.', 'Next.']);
+  });
+
+  it('resolves a leading mood marker once and never speaks it', () => {
+    const { s, chunks, moods } = collect();
+    s.push('<<mood:happy>> All systems nominal. ');
+    expect(moods).toEqual(['happy']);
+    expect(chunks).toEqual(['All systems nominal.']);
+    s.push('Second line. ');
+    expect(moods).toEqual(['happy']); // not fired again
+  });
+
+  it('holds a mood marker that is split across deltas (never speaks a half marker)', () => {
+    const { s, chunks, moods } = collect();
+    s.push('<<mo');
+    s.push('od:foc');
+    expect(chunks).toEqual([]);
+    expect(moods).toEqual([]);
+    s.push('used>> Working on it. ');
+    expect(moods).toEqual(['focused']);
+    expect(chunks).toEqual(['Working on it.']);
+  });
+
+  it('strips conductor markers that appear mid-text', () => {
+    const { s, chunks } = collect();
+    s.push('Spinning up <<spawn:web|C:/p|build>> now. Done.');
+    s.flush();
+    // marker removed; surrounding text preserved (collapsed whitespace is fine)
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toBe('Spinning up now. Done.');
+    expect(chunks.join(' ')).not.toContain('<<');
+  });
+
+  it('does NOT emit when a sentence terminator falls inside an incomplete marker', () => {
+    const { s, chunks } = collect();
+    s.push('Working <<spawn:a.b'); // the "." is inside an unfinished marker
+    expect(chunks).toEqual([]); // must wait, not speak "Working <<spawn:a.b"
+    s.push('|C:/p|task>> ok. ');
+    expect(chunks.join(' ')).not.toContain('<<');
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toBe('Working ok.');
+  });
+
+  it('does not split on a decimal point (no following whitespace)', () => {
+    const { s, chunks } = collect();
+    s.push('Pi is 3.14 today. ');
+    expect(chunks).toEqual(['Pi is 3.14 today.']);
+  });
+
+  it('flush emits the remaining tail and drops a dangling incomplete marker', () => {
+    const { s, chunks } = collect();
+    s.push('All set <<tel');
+    s.flush();
+    expect(chunks).toEqual(['All set']);
+    expect(chunks.join('')).not.toContain('<<');
+  });
+
+  it('speaks normally when there is no mood marker (onMood never fires)', () => {
+    const { s, chunks, moods } = collect();
+    s.push('Just text here. ');
+    expect(moods).toEqual([]);
+    expect(chunks).toEqual(['Just text here.']);
+  });
+
+  it('tracks spoke() and reset() clears state', () => {
+    const { s } = collect();
+    expect(s.spoke()).toBe(false);
+    s.push('One. ');
+    expect(s.spoke()).toBe(true);
+    s.reset();
+    expect(s.spoke()).toBe(false);
+    const after: string[] = [];
+    const s2 = createReplyStreamer({ onChunk: (t) => after.push(t) });
+    s2.push('<<mood:error>>');
+    s2.reset();
+    s2.push('Fresh start. ');
+    expect(after).toEqual(['Fresh start.']);
+  });
+
+  it('multiple sentences in one delta all emit in order', () => {
+    const { s, chunks } = collect();
+    s.push('A. B! C? D');
+    expect(chunks).toEqual(['A.', 'B!', 'C?']);
+    s.flush();
+    expect(chunks).toEqual(['A.', 'B!', 'C?', 'D']);
+  });
+
+  it('ignores empty deltas', () => {
+    const { s, chunks } = collect();
+    s.push('');
+    s.push('Hi. ');
+    expect(chunks).toEqual(['Hi.']);
+  });
+});
