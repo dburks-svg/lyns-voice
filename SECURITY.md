@@ -42,11 +42,14 @@ A strict Content-Security-Policy (`src-tauri/tauri.conf.json`) allows no remote 
 The only egress is:
 
 - the `claude` child process (your existing login), and
-- the one-time Whisper model download, which is **checksummed (SHA-256)** and size-capped
-  in Rust before use, with HTTP-range resume on a flaky network.
+- the one-time speech-model downloads done in Rust before use, with HTTP-range resume on a
+  flaky network: the Whisper STT model and the Kokoro TTS model are **checksummed (SHA-256)**
+  and size-capped; Kokoro's vocab and voice files are HTTPS-fetched and size-capped.
 
-Speech is entirely local: Whisper STT and native Windows SAPI TTS. `getUserMedia` is
-audio-only, least-privilege, with `echoCancellation` enabled.
+Speech is entirely local: Whisper STT, and TTS via in-process neural Kokoro (the default) or
+native Windows SAPI. `getUserMedia` is audio-only, least-privilege, with `echoCancellation`
+enabled. When the "hey Q" wake word is enabled, the microphone stays open locally to hear the
+phrase; captured audio never leaves the device (no egress, per the CSP above).
 
 ## Human-in-the-loop (HITL)
 
@@ -78,4 +81,5 @@ and a CodeQL SAST pass. Rust is clippy-clean (`--all-targets`).
 
 ## Reporting
 
-This is a personal project. Report issues to the repository owner (dburks@nuralyn.com).
+Please report security issues privately via this repository's **GitHub Security
+Advisories** ("Security" tab -> "Report a vulnerability"), not as a public issue.

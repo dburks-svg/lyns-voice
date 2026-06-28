@@ -1,9 +1,10 @@
 {
   "name": "q-avatar",
-  "version": "0.5.0",
-  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "Zamphere",
   "type": "module",
-  "description": "Real-time 3D neon-blue Q avatar desktop app (Tauri v2 + Three.js).",
+  "description": "Q: a Tauri v2 desktop app that is the voice and face of Claude Code (Three.js orb, on-device speech).",
   "engines": {
     "node": ">=20"
   },

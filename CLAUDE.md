@@ -2,8 +2,9 @@
 
 A standalone **Tauri v2 desktop app** that is the voice and face of Claude Code: a
 holographic orb on a futuristic HUD that listens (local Whisper STT), thinks while the
-`claude` CLI works, and speaks the reply (native Windows SAPI TTS), with four live
-telemetry panels. Windows is the primary platform; speech runs 100% locally. This repo
+`claude` CLI works, and speaks the reply (in-process neural Kokoro TTS by default, or
+native Windows SAPI), with four live telemetry panels. Windows is the primary platform;
+speech runs 100% locally. This repo
 was migrated from a browser overlay injected into `mcp-voice-hooks`; that era is retired
 (see git history / `master` if you need it).
 
@@ -35,16 +36,22 @@ app's renderer is `QOrbAvatar` (the vendored Three.js orb); the demo keeps the l
 the behavioral source of truth; the rest of that spec predates the Tauri migration. Do not
 edit `AVATAR_SPEC.md`.
 
-## Status: voice loop complete (Phases 0-4), shipped as a desktop app
+## Status: shipped desktop app (voice loop + Command Center + multi-session Conductor)
 
-- **Phase 0** mount; **Phase 1** native SAPI TTS; **Phase 2** local Whisper STT + VAD
-  auto-send-on-pause; **Phase 3** Claude Code stream-json bridge (the full hands-free loop);
-  **Phase 4** security (dontAsk allowlist + Thinking watchdog + strict CSP), deferred tests.
-- **FUI overhaul:** the vendored MIT Three.js Q orb centerpiece (full-window) + the
-  three-column tactical HUD + four live telemetry panels (transcript / activity / session
-  tokens+cost / mic waveform); mood-driven palette (idle navy, active blue).
-- **Packaging:** unsigned per-user NSIS build. Private, personal, zero-cost tool, so signing
-  and the auto-updater are intentionally dropped.
+- **Voice loop (Phases 0-4):** mount; TTS; local Whisper STT + VAD auto-send-on-pause; the
+  Claude Code stream-json bridge (the full hands-free loop); security (dontAsk allowlist +
+  Thinking watchdog + strict CSP). TTS now defaults to **in-process neural Kokoro** with
+  native Windows SAPI as a settings toggle (`tts.rs` + `kokoro.rs`).
+- **FUI + Command Center:** the vendored MIT Three.js Q orb centerpiece (full-window) + the
+  three-column tactical HUD + live telemetry panels (transcript / activity / session
+  tokens+cost / mic waveform); three switchable themes; a "hey Q" wake word with an always-on
+  mic; per-session terminal views; real ConPTY shells; a floating diff viewer; CI status
+  dots; mini (PiP) mode; first-run onboarding.
+- **Multi-session Conductor:** a primary voice session can spawn and steer background `claude`
+  sessions (each in its own panel), with courteous voice arbitration. See the marker
+  convention in `claude.rs` / `conductorProtocol.ts`.
+- **Packaging:** unsigned per-user NSIS build; signing and the auto-updater are intentionally
+  dropped (a free, zero-cost personal tool). Released publicly under the MIT License.
 
 ## Commands
 
@@ -71,6 +78,7 @@ the release `target-dir` is redirected to `%LOCALAPPDATA%` via a gitignored `.ca
 ```
 src/
   app/                  Desktop shell: main.ts entry, shell.css (the FUI HUD), index.html (root)
+                        + session/ (per-session Claude view), terminal/ (ConPTY xterm), diff/ (diff viewer)
   avatar/
     QOrbAvatar.ts       Adapter: drives the vendored orb through the ControllableAvatar seam
     jarvisOrb/          Vendored MIT Three.js orb (renderer.ts + states.ts; keep its LICENSE)
@@ -81,22 +89,31 @@ src/
     tauriAdapter.ts     attachTauri: Tauri events -> signals -> controller; TTS/STT/Claude + watchdog
     telemetry.ts        The four live HUD panels (transcript / activity / session / waveform)
     signals.ts          Pure VoiceSignals -> deriveState
+    conductorProtocol.ts, conductorVoice.ts   Multi-session spawn/tell/propose markers + arbitration
+    replyStreamer.ts, wakeWord.ts, voices.ts  Sentence streaming, "hey Q" wake word, voice labels
   mood/                 mood tag parser, color blend, MoodController
   config/               AvatarConfig + safe localStorage store
 demo/                   Host-free harness (legacy Three.js reactor/head + all four states)
 
 src-tauri/              Rust backend
   src/tts.rs            Native Windows SAPI synth -> in-memory WAV (no PowerShell child)
+  src/kokoro.rs         In-process neural Kokoro TTS (ort/ONNX + misaki-rs g2p); the default engine
   src/stt.rs            Mic frames -> webrtc-vad endpointing -> whisper-rs transcription
-  src/claude.rs         The claude CLI stream-json sidecar + NDJSON event parsing
+  src/claude.rs         The claude CLI stream-json sidecar + NDJSON parsing (+ conductor markers)
+  src/terminal.rs       Real ConPTY interactive shells (portable-pty)
+  src/ci.rs             GitHub Actions status polling via the gh CLI
+  src/history.rs        Recent project-dir persistence (app_data_dir)
+  src/transcript.rs     Transcript save/load/cleanup (app_data_dir)
   tauri.conf.json       Window, strict CSP, NSIS bundle
 ```
 
 ## The voice loop (where to look)
 
-- **TTS** (`tts.rs`): `tts_synthesize` renders a mood-stripped line to a WAV buffer via native
-  SAPI in-process (no `powershell.exe`), returned as bytes and played through the EXISTING
-  `MediaTts`, so the real audio amplitude drives the Speaking animation.
+- **TTS** (`kokoro.rs` default, `tts.rs` SAPI): `tts_synthesize` renders a mood-stripped line
+  to a WAV buffer in-process (Kokoro neural via ort/ONNX with misaki-rs g2p by default, or
+  native Windows SAPI; no `powershell.exe`), returned as bytes and played through the EXISTING
+  `MediaTts`, so the real audio amplitude drives the Speaking animation. The engine is a
+  settings toggle; the Kokoro model downloads once to `app_data_dir` on first use.
 - **STT** (`stt.rs`): the webview pushes 16 kHz Int16 frames; a worker runs `webrtc-vad`
   endpointing then `whisper-rs` on a pause and emits `stt://final`. The model downloads once to
   `app_data_dir` on first run.
@@ -118,8 +135,9 @@ src-tauri/              Rust backend
   per-tool interactive confirm awaits Claude Code's (currently undocumented)
   `--permission-prompt-tool` protocol.
 - Strict **CSP** in `tauri.conf.json` (no remote origins; the only egress is the `claude` child
-  and the checksummed model download done in Rust). A **Thinking watchdog** recovers the UI if a
-  turn hangs.
+  and the one-time speech-model downloads done in Rust: the Whisper STT model and the Kokoro
+  TTS model are SHA-256 checksummed, with Kokoro's vocab/voice files HTTPS-fetched and
+  size-capped). A **Thinking watchdog** recovers the UI if a turn hangs.
 - `getUserMedia` is audio-only, least-privilege, cancellation-safe; the `<<mood:...>>` parser is
   bounded; all rendered text uses `textContent` (never `innerHTML`). No API key is stored (the
   app uses the user's existing `claude` login). Keep `npm audit` clean.

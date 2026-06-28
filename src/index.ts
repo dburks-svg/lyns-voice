@@ -4,7 +4,7 @@
  */
 
 // Keep in sync with package.json "version"; tests/version.test.ts enforces it.
-export const VERSION = '0.5.0';
+export const VERSION = '1.0.0';
 
 export { Avatar, IDLE_PARAMS } from './avatar/Avatar';
 export type { AvatarOptions, RendererFactory } from './avatar/Avatar';

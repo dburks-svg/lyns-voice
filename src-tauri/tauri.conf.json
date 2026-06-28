@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Q",
-  "version": "0.1.0",
-  "identifier": "com.nuralyn.q",
+  "version": "1.0.0",
+  "identifier": "com.qavatar.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -28,6 +28,9 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Zamphere",
+    "copyright": "Copyright (c) 2026 Zamphere",
+    "license": "MIT",
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",

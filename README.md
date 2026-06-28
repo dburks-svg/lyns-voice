@@ -4,8 +4,9 @@ A standalone desktop app (Tauri v2) that is the voice and face of Claude Code. S
 request; a glowing holographic orb listens, shows Claude thinking, and speaks the reply
 back, while a futuristic HUD streams the live transcript, the tools Claude is running,
 token and cost telemetry, and your microphone waveform. Speech runs entirely on-device
-(local Whisper for recognition, native Windows synthesis for the voice), and the `claude`
-CLI drives real coding sessions in a project directory you choose.
+(local Whisper for recognition; in-process neural Kokoro TTS for the voice by default, with
+native Windows SAPI as an option), and the `claude` CLI drives real coding sessions in a
+project directory you choose.
 
 ![The Q desktop app: holographic orb and live telemetry HUD](docs/jarvis-fui.png)
 
@@ -18,6 +19,11 @@ preserved; the shell is now a real window.
 
 - **Hands-free voice loop:** speak, auto-send on pause, Claude works, spoken reply with
   mood, back to listening.
+- **"Hey Q" wake word (optional):** keeps the mic armed so you can start a turn without a tap.
+  It is entirely on-device with no egress; while enabled, the microphone stays open locally to
+  hear the phrase.
+- **Neural or native voice:** in-process **Kokoro** neural TTS (the default, a set of natural
+  voices) or **native Windows SAPI**, switchable in settings. Both synthesize on-device.
 - **Four reactive states** driven by real voice signals: Idle, Listening, Thinking, Speaking.
 - A **holographic Q orb** (Three.js) centerpiece on a three-column tactical HUD; the
   orb shifts color with both the activity state and the mood.
@@ -83,9 +89,11 @@ no mood tag the avatar behaves exactly as the four states above).
   (`whisper-rs`) with `webrtc-vad` endpointing, so an utterance auto-finalizes on a pause.
   Genuinely offline. The speech model downloads once on first run (resumable over a flaky
   network, with progress and ETA).
-- **TTS:** a Rust command synthesizes speech to a WAV buffer with native Windows SAPI
-  (in-process, no `powershell.exe`), played through Web Audio so the real audio amplitude
-  drives the Speaking animation.
+- **TTS:** a Rust command synthesizes speech to a WAV buffer in-process - **Kokoro** neural
+  TTS (via `ort`/ONNX Runtime with `misaki-rs` grapheme-to-phoneme) by default, or **native
+  Windows SAPI** (no `powershell.exe`) - played through Web Audio so the real audio amplitude
+  drives the Speaking animation. The engine is a settings toggle; the Kokoro model downloads
+  once on first use.
 - **Claude bridge:** Rust drives the `claude` CLI as a long-lived sidecar
   (`--print --input-format stream-json --output-format stream-json`), parses its NDJSON
   events into avatar states and the telemetry panels, and pushes each finalized utterance as
@@ -117,7 +125,7 @@ LIBCLANG_PATH="C:/Program Files/LLVM/bin" npm run tauri build
 ```
 
 This produces an unsigned per-user NSIS installer (`Q_<version>_x64-setup.exe`) plus the
-raw `app.exe`, under the configured target directory. It is unsigned by design (a private,
+raw `app.exe`, under the configured target directory. It is unsigned by design (a free,
 personal, zero-cost tool), so Windows SmartScreen shows a one-time "More info, Run anyway."
 
 A host-free **demo** (no Tauri, no backend) exercises the avatar states in a browser:
@@ -167,6 +175,7 @@ demo/                      Host-free harness (the legacy Three.js reactor/head +
 
 src-tauri/                 Rust backend
   src/tts.rs               Native Windows SAPI synth -> WAV buffer (no PowerShell)
+  src/kokoro.rs            In-process neural Kokoro TTS (ort/ONNX + misaki-rs g2p); default engine
   src/stt.rs               Mic frames -> webrtc-vad endpointing -> whisper-rs transcription
   src/claude.rs            The claude CLI sidecar (session-keyed) + stream-json parsing + diff/stream emit
   src/terminal.rs          Real ConPTY interactive shells (portable-pty)
@@ -189,7 +198,9 @@ entire voice loop drive it with no changes.
   and the Activity panel shows every tool as it runs. The chosen project directory is the
   intended blast radius (this is defense-in-depth, not an OS sandbox).
 - A strict **Content-Security-Policy** (no remote origins; the only egress is the `claude`
-  child and the checksummed model download done in Rust).
+  child and the one-time speech-model downloads done in Rust: the Whisper STT model and the
+  Kokoro TTS model are SHA-256 checksummed, with Kokoro's vocab/voice files HTTPS-fetched and
+  size-capped).
 - A **Thinking watchdog** recovers the UI if a Claude turn hangs.
 - Native SAPI TTS runs **in-process** (no `powershell.exe` child), which removes the antivirus
   friction the old browser path hit.
@@ -236,16 +247,26 @@ cargo audit, gitleaks, CodeQL) on every push. `npm audit` is clean.
 ## Tech stack
 
 TypeScript, Three.js, Vite, Vitest, and Playwright on the frontend; Tauri v2 with a Rust
-backend (`whisper-rs`, `webrtc-vad`, the `windows` crate for SAPI, `portable-pty` for the ConPTY
-shell, `tauri-plugin-notification` + `tauri-plugin-dialog`, `tokio` + `serde_json` for the
-Claude sidecar); and the `claude` CLI for
-the agent itself. Windows is the primary platform; the avatar and the voice seam are
-platform-independent.
+backend (`whisper-rs` for STT; `ort`/ONNX Runtime + `misaki-rs` for Kokoro neural TTS and the
+`windows` crate for SAPI TTS; `webrtc-vad`; `portable-pty` for the ConPTY shell;
+`tauri-plugin-notification` + `tauri-plugin-dialog`; `tokio` + `serde_json` for the Claude
+sidecar); and the `claude` CLI for the agent itself. Windows is the primary platform; the
+avatar and the voice seam are platform-independent.
 
 ## Acknowledgements
 
 - The holographic orb is the MIT-licensed
   [`jarvis-ai-orb-web-animation`](https://github.com/cyber1443/jarvis-ai-orb-web-animation) by
   cyber1443, vendored under `src/avatar/jarvisOrb/` (its renderer ported to Three.js r128).
+- Speech recognition uses OpenAI's **Whisper** (`ggml-base.en`) via `whisper.cpp` / `whisper-rs`
+  (MIT); the model downloads once at runtime.
+- Neural TTS uses the **Kokoro-82M** ONNX model and voices (Apache-2.0, by hexgrad /
+  onnx-community), downloaded once at runtime.
 - The demo's head model is the Lee Perry-Smith head (CC-BY 3.0), swappable via config; see
   `vendor/NOTICE.md`.
+
+## License
+
+Q is released under the [MIT License](LICENSE). It bundles and downloads third-party
+components under their own permissive licenses (MIT / Apache-2.0 / CC-BY-3.0); see the
+**Acknowledgements** above, `vendor/NOTICE.md`, and `src/avatar/jarvisOrb/LICENSE`.

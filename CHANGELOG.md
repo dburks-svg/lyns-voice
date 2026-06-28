@@ -1,12 +1,22 @@
 # Changelog
 
 All notable changes to Q are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/); versions are not yet semver-tagged
-(the 1.0.0 stamp waits for hands-on validation of the conductor).
+[Keep a Changelog](https://keepachangelog.com/) and this project adheres to
+[Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - the road to 1.0
+## [1.0.0] - 2026-06-27
+
+First public release, under the MIT License. Q is the voice and face of Claude Code: a
+holographic orb that listens, thinks, and speaks, with a multi-session conductor.
 
 ### Added
+- **Neural TTS (Kokoro)**: in-process Kokoro neural voice (via ONNX Runtime + misaki-rs
+  grapheme-to-phoneme) is now the default, with native Windows SAPI as a settings toggle;
+  the model and voices download once on first use (checksummed / size-capped).
+- **"Hey Q" wake word**: an optional, fully on-device wake phrase keeps the mic armed so a
+  turn can start without a tap.
+- **Streamed speech**: replies are spoken sentence-by-sentence as they arrive, so Q starts
+  talking before the full turn completes.
 - **The conductor (multi-session)**: Q runs a fleet of Claude sessions.
   - **Background multi-session** (Alt+N): spawn additional sessions, each its own panel you
     watch and type into, running in parallel with the primary voice session.
@@ -36,6 +46,8 @@ All notable changes to Q are documented here. The format follows
 - `SECURITY.md` documenting the capability surface, blast radius, and HITL model.
 
 ### Changed
+- **Public release**: stamped version 1.0.0 across all manifests, added the MIT `LICENSE`,
+  and set the bundle publisher/copyright. The app identifier is now `com.qavatar.app`.
 - The Claude bridge is keyed by **session id** with namespaced `claude://{id}/*` events
   (multi-session-ready foundation) plus a `claude_cancel` primitive.
 - **Watchdog** timeout is configurable and shows a "Still working..." reassurance during
