@@ -41,15 +41,20 @@
 /* The 8 resize handles (created by SessionPanel, wired by attachDragResize) must sit
    just INSIDE the edges: the panel's clip-path (the corner notch) clips hit-testing,
    so handles protruding outside the box (the shared default) never receive pointer
-   events. Insetting them to the edge restores resize from every side and corner. */
-.session-window .rh-n  { top: 0;    left: 8px; right: 8px; height: 6px; }
-.session-window .rh-s  { bottom: 0; left: 8px; right: 8px; height: 6px; }
-.session-window .rh-e  { right: 0;  top: 8px; bottom: 8px; width: 6px; }
-.session-window .rh-w  { left: 0;   top: 8px; bottom: 8px; width: 6px; }
-.session-window .rh-ne { top: 0;    right: 0;  width: 14px; height: 14px; }
-.session-window .rh-nw { top: 0;    left: 0;   width: 14px; height: 14px; }
-.session-window .rh-se { bottom: 0; right: 0;  width: 14px; height: 14px; }
-.session-window .rh-sw { bottom: 0; left: 0;   width: 14px; height: 14px; }
+   events. Insetting them to the edge restores resize from every side and corner.
+   `position: absolute` is set here (scoped to .session-window so it out-specifies the
+   `.session-window > * { position: relative }` rule below); the shared base rule in
+   terminal.css ties on specificity and loses by load order (session.css loads last),
+   which would otherwise collapse the handles out of flow and lock the window. */
+.session-window .resize-handle { position: absolute; z-index: 2; }
+.session-window .rh-n  { top: 0;    left: 8px; right: 8px; height: 6px; cursor: n-resize; }
+.session-window .rh-s  { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: s-resize; }
+.session-window .rh-e  { right: 0;  top: 8px; bottom: 8px; width: 6px; cursor: e-resize; }
+.session-window .rh-w  { left: 0;   top: 8px; bottom: 8px; width: 6px; cursor: w-resize; }
+.session-window .rh-ne { top: 0;    right: 0;  width: 14px; height: 14px; cursor: ne-resize; }
+.session-window .rh-nw { top: 0;    left: 0;   width: 14px; height: 14px; cursor: nw-resize; }
+.session-window .rh-se { bottom: 0; right: 0;  width: 14px; height: 14px; cursor: se-resize; }
+.session-window .rh-sw { bottom: 0; left: 0;   width: 14px; height: 14px; cursor: sw-resize; }
 
 .session-window > * {
   position: relative;

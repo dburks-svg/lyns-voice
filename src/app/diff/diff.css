@@ -42,6 +42,22 @@
   z-index: 1;
 }
 
+/* The 8 resize handles (created by DiffPanel, wired by attachDragResize) sit just
+   INSIDE the edges so the panel's clip-path notch does not clip their hit-testing.
+   `position: absolute` is scoped to .diff-window so it out-specifies the
+   `.diff-window > * { position: relative }` rule above; the shared base rule in
+   terminal.css ties on specificity and loses by load order (diff.css loads after it),
+   which would otherwise collapse the handles out of flow and lock the window. */
+.diff-window .resize-handle { position: absolute; z-index: 2; }
+.diff-window .rh-n  { top: 0;    left: 8px; right: 8px; height: 6px; cursor: n-resize; }
+.diff-window .rh-s  { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: s-resize; }
+.diff-window .rh-e  { right: 0;  top: 8px; bottom: 8px; width: 6px; cursor: e-resize; }
+.diff-window .rh-w  { left: 0;   top: 8px; bottom: 8px; width: 6px; cursor: w-resize; }
+.diff-window .rh-ne { top: 0;    right: 0;  width: 14px; height: 14px; cursor: ne-resize; }
+.diff-window .rh-nw { top: 0;    left: 0;   width: 14px; height: 14px; cursor: nw-resize; }
+.diff-window .rh-se { bottom: 0; right: 0;  width: 14px; height: 14px; cursor: se-resize; }
+.diff-window .rh-sw { bottom: 0; left: 0;   width: 14px; height: 14px; cursor: sw-resize; }
+
 /* ---- Title bar: drag handle ---- */
 .diff-titlebar {
   display: flex;
