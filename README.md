@@ -110,6 +110,13 @@ Prerequisites: Node 20+, a Rust toolchain, and LLVM/libclang (needed to build `w
 The `claude` CLI must be on your PATH at runtime. Windows is the primary platform (native
 SAPI TTS).
 
+Runtime memory: the speech engines run in-process. With both local Whisper (STT) and neural
+Kokoro (TTS) warm, the resident footprint is roughly 600 to 800 MB (Whisper about 150 MB,
+Kokoro plus its ONNX Runtime about 200 MB, the rest the Tauri/WebView2 shell), and
+transcription briefly allocates more per utterance. So 8 GB of RAM is the practical minimum
+and 16 GB is comfortable. Selecting the SAPI voice in settings skips the Kokoro/ONNX Runtime
+cost entirely, and the STT and TTS models each download only on first use.
+
 ```bash
 npm install
 

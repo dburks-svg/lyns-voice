@@ -219,6 +219,7 @@ impl KokoroState {
         }
         let synth = Arc::new(ensure_and_load(app)?);
         *guard = Some(synth.clone());
+        crate::mem::log_rss("kokoro_loaded");
         Ok(synth)
     }
 }

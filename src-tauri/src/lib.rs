@@ -2,6 +2,7 @@ mod ci;
 mod claude;
 mod history;
 mod kokoro;
+mod mem;
 mod stt;
 mod terminal;
 mod transcript;
@@ -20,6 +21,7 @@ pub fn run() {
         )?;
       }
       app.handle().plugin(tauri_plugin_notification::init())?;
+      mem::log_rss("baseline"); // resident footprint before any speech engine loads
       Ok(())
     })
     .manage(stt::SttState::default())

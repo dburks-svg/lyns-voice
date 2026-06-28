@@ -347,6 +347,7 @@ pub async fn stt_start(app: AppHandle) -> Result<(), String> {
         }
         let tr = Arc::new(ensure_and_load(&app2)?);
         *guard = Some(Arc::clone(&tr));
+        crate::mem::log_rss("whisper_loaded");
         Ok(tr)
     })
     .await
@@ -743,6 +744,28 @@ mod tests {
         eprintln!("infer_ms = {infer_ms}");
         eprintln!("text     = {text}");
         assert!(!text.is_empty(), "expected a non-empty transcript");
+    }
+
+    // RAM probe: the resident cost of loading the Whisper model, to calibrate the
+    // co-resident footprint estimate. Run: set Q_MODEL, then
+    // `cargo test --lib measure_whisper_rss -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "loads a whisper model; set Q_MODEL, run with --ignored --nocapture"]
+    fn measure_whisper_rss() {
+        let model = std::env::var("Q_MODEL").expect("set Q_MODEL");
+        let mb = |b: u64| b as f64 / (1u64 << 20) as f64;
+        let (ws0, p0) = crate::mem::process_mem_bytes().expect("rss query");
+        let _tr = Transcriber::load(&model).expect("load model"); // keep alive while measuring
+        let (ws1, p1) = crate::mem::process_mem_bytes().expect("rss query");
+        eprintln!("=== WHISPER RSS ===");
+        eprintln!("model         = {model}");
+        eprintln!("baseline      = {:.0} MB ws / {:.0} MB priv", mb(ws0), mb(p0));
+        eprintln!("after load    = {:.0} MB ws / {:.0} MB priv", mb(ws1), mb(p1));
+        eprintln!(
+            "whisper delta = {:.0} MB ws / {:.0} MB priv",
+            mb(ws1.saturating_sub(ws0)),
+            mb(p1.saturating_sub(p0))
+        );
     }
 
     #[test]
