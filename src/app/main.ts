@@ -108,6 +108,7 @@ async function bootstrap(): Promise<void> {
       rate: settings.ttsRate,
       pitch: settings.ttsPitch,
       voice: settings.ttsVoice,
+      engine: settings.ttsEngine,
     }),
     micDeviceId: () => settings.micDeviceId,
     autoReconnect: () => settings.autoReconnect,
@@ -727,9 +728,14 @@ function wireSettings(settings: AppSettings): void {
     invoke('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
   }
 
-  // Voice selector: populate from SAPI
-  if (voiceSelect && invoke) {
-    void invoke('tts_list_voices').then((voices) => {
+  // Voice selector: populated per engine (Kokoro ids -> friendly labels, or SAPI
+  // voice names). Re-run when the engine toggles, since the two lists differ.
+  const populateVoices = (engine: string): void => {
+    if (!voiceSelect || !invoke) return;
+    while (voiceSelect.options.length > 1) voiceSelect.remove(1); // keep the default option
+    const def = voiceSelect.options[0];
+    if (def) def.textContent = engine === 'sapi' ? 'system default' : 'Q default (Emma)';
+    void invoke('tts_list_voices', { engine }).then((voices) => {
       const list = voices as string[];
       for (const name of list) {
         const opt = document.createElement('option');
@@ -737,19 +743,30 @@ function wireSettings(settings: AppSettings): void {
         opt.textContent = voiceLabel(name);
         voiceSelect.appendChild(opt);
       }
-      // Validate the saved voice: if it was uninstalled, fall back to default and
-      // tell the user rather than silently honoring a different voice.
+      // Drop a saved voice not in this engine's list (e.g. after switching engines),
+      // falling back to the engine default.
       if (settings.ttsVoice && !list.includes(settings.ttsVoice)) {
-        console.warn(`[settings] saved TTS voice "${settings.ttsVoice}" not found; using default`);
         settings.ttsVoice = '';
         saveSettings(settings);
       }
-      if (settings.ttsVoice) voiceSelect.value = settings.ttsVoice;
+      voiceSelect.value = settings.ttsVoice; // '' selects the default option
     }).catch(() => {});
-  }
+  };
+  populateVoices(settings.ttsEngine);
   voiceSelect?.addEventListener('change', () => {
     settings.ttsVoice = voiceSelect.value;
     saveSettings(settings);
+  });
+
+  // TTS engine toggle: neural Kokoro (default) vs Windows SAPI. Switching reloads the
+  // voice list (the engines expose different voices) and resets the saved voice.
+  const engineCheck = document.getElementById('set-engine') as HTMLInputElement | null;
+  if (engineCheck) engineCheck.checked = settings.ttsEngine !== 'sapi';
+  engineCheck?.addEventListener('change', () => {
+    settings.ttsEngine = engineCheck.checked ? 'kokoro' : 'sapi';
+    settings.ttsVoice = ''; // the previous pick belongs to the other engine
+    saveSettings(settings);
+    populateVoices(settings.ttsEngine);
   });
 
   // Mic device selector: populate from browser API

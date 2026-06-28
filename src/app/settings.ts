@@ -15,6 +15,8 @@ export interface PanelLayout {
 
 export interface AppSettings {
   ttsVoice: string;
+  /** TTS engine: 'kokoro' (neural, default) or 'sapi' (Windows system voices). */
+  ttsEngine: string;
   ttsRate: number;
   ttsPitch: number;
   micDeviceId: string;
@@ -73,6 +75,7 @@ export function clampEffortToModel(model: string, effort: string): string {
 /** Default app settings; exported so callers compare against these instead of hardcoding. */
 export const DEFAULT_SETTINGS: AppSettings = {
   ttsVoice: '',
+  ttsEngine: 'kokoro',
   ttsRate: 0,
   ttsPitch: 0,
   micDeviceId: '',
