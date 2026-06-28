@@ -19,6 +19,7 @@ import {
 } from './settings';
 import { attachShortcuts } from './shortcuts';
 import { MiniMode } from './mini-mode';
+import { detectGpu } from '../avatar/gpu';
 import { showOnboarding } from './onboarding';
 import { showProposeCard } from './proposeCard';
 import { createFleetMeter } from '../integration/fleetMeter';
@@ -39,6 +40,15 @@ async function bootstrap(): Promise<void> {
     return;
   }
   const label = document.getElementById('status');
+
+  // Surface the WebGL backend in the UI so it is visible even in a release build
+  // (which has no devtools): the orb auto-drops to a lighter render path on
+  // software rendering (SwiftShader / WARP), the usual cause of runaway CPU. The
+  // marker only appears on software rendering; hover the status text for the exact
+  // renderer string either way.
+  const gpu = detectGpu();
+  const versionLabel = `Q v${VERSION}${gpu.software ? ' (lite: software GPU)' : ''}`;
+  if (label) label.title = `WebGL: ${gpu.renderer}`;
 
   const byId = (id: string): HTMLElement | null => document.getElementById(id);
   const panels = new TelemetryPanels({
@@ -211,7 +221,7 @@ async function bootstrap(): Promise<void> {
       claudeButton.textContent = 'connect claude';
       claudeButton.classList.remove('active');
       if (label) {
-        label.textContent = `Q v${VERSION}`;
+        label.textContent = versionLabel;
       }
       return;
     }
@@ -685,7 +695,7 @@ async function bootstrap(): Promise<void> {
   }
 
   if (label) {
-    label.textContent = `Q v${VERSION}`;
+    label.textContent = versionLabel;
   }
 }
 
