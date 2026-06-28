@@ -255,8 +255,22 @@ fn ensure_and_load(app: &AppHandle) -> Result<Synthesizer, String> {
     // Fetch the default voice up front so the first reply doesn't stall on a download.
     ensure_voice(app, &dir, DEFAULT_VOICE)?;
 
+    // Bound the ONNX Runtime thread pool. By default ort uses one intra-op thread
+    // per core and lets them spin-wait between runs, so a single synth saturates the
+    // box and the pool keeps cores busy briefly afterward. Cap intra-op threads to
+    // ~half the cores (clamped to [1, 4]), keep inter-op at 1, and turn spin-waiting
+    // off so synthesis stays responsive and the CPU idles cleanly between replies.
+    let intra = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2) / 2).clamp(1, 4);
     let session = Session::builder()
         .map_err(|e| format!("ort session builder: {e}"))?
+        .with_intra_threads(intra)
+        .map_err(|e| format!("ort intra_threads: {e}"))?
+        .with_inter_threads(1)
+        .map_err(|e| format!("ort inter_threads: {e}"))?
+        .with_intra_op_spinning(false)
+        .map_err(|e| format!("ort intra spinning: {e}"))?
+        .with_inter_op_spinning(false)
+        .map_err(|e| format!("ort inter spinning: {e}"))?
         .commit_from_file(&model)
         .map_err(|e| format!("load kokoro model '{}': {e}", model.display()))?;
 

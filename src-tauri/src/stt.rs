@@ -63,8 +63,12 @@ impl Transcriber {
     pub fn load(model_path: &str) -> Result<Self, String> {
         let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
             .map_err(|e| format!("load whisper model '{model_path}': {e}"))?;
+        // Cap whisper inference threads at min(cores-1, 4): transcription is
+        // CPU-heavy and grabbing every core froze the rest of the machine for the
+        // duration. 4 threads is plenty for the small model, and leaving cores free
+        // keeps the UI (and the rest of the system) responsive while it runs.
         let n_threads = std::thread::available_parallelism()
-            .map(|n| (n.get() as i32 - 1).max(1))
+            .map(|n| (n.get() as i32 - 1).clamp(1, 4))
             .unwrap_or(4);
         Ok(Self { ctx, n_threads, infer_lock: Mutex::new(()) })
     }
