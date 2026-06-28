@@ -28,13 +28,57 @@ describe('createReplyStreamer', () => {
     expect(chunks).toEqual(['The quick brown fox.', 'Next.']);
   });
 
-  it('resolves a leading mood marker once and never speaks it', () => {
+  it('resolves a leading mood marker and never speaks it', () => {
     const { s, chunks, moods } = collect();
     s.push('<<mood:happy>> All systems nominal. ');
     expect(moods).toEqual(['happy']);
     expect(chunks).toEqual(['All systems nominal.']);
     s.push('Second line. ');
-    expect(moods).toEqual(['happy']); // not fired again
+    expect(moods).toEqual(['happy']); // no further marker => no further mood
+  });
+
+  it('applies mood markers that appear later in the reply, not just the leading one', () => {
+    const { s, chunks, moods } = collect();
+    s.push('<<mood:happy>> Once upon a time. ');
+    expect(moods).toEqual(['happy']);
+    s.push('<<mood:curious>> The puppy wondered. ');
+    expect(moods).toEqual(['happy', 'curious']);
+    s.push('<<mood:concerned>> Dark clouds gathered. ');
+    expect(moods).toEqual(['happy', 'curious', 'concerned']);
+    expect(chunks).toEqual(['Once upon a time.', 'The puppy wondered.', 'Dark clouds gathered.']);
+    expect(chunks.join(' ')).not.toContain('<<');
+  });
+
+  it('applies a mood marker embedded mid-sentence and strips it from speech', () => {
+    const { s, chunks, moods } = collect();
+    s.push('The hero smiled <<mood:happy>> with joy. ');
+    expect(moods).toEqual(['happy']);
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toBe('The hero smiled with joy.');
+    expect(chunks.join(' ')).not.toContain('<<');
+  });
+
+  it('applies a trailing mood marker in a terminator-less tail at flush', () => {
+    const { s, chunks, moods } = collect();
+    s.push('No period here <<mood:error>>');
+    s.flush();
+    expect(moods).toEqual(['error']);
+    expect(chunks).toEqual(['No period here']);
+  });
+
+  it('cycles moods through a reply that opens with text and puts each marker on its own line', () => {
+    const { s, chunks, moods } = collect();
+    // Mirrors the "cycle through all moods" reply: a lead-in sentence with no marker,
+    // then each <<mood:NAME>> on its own line followed by a newline.
+    s.push('Watch the indicator as I run through them.\n\n');
+    s.push('<<mood:neutral>>\nNeutral baseline.\n\n');
+    s.push('<<mood:focused>>\nFocused now.\n\n');
+    s.push('<<mood:curious>>\nCurious now.\n\n');
+    s.push('<<mood:concerned>>\nConcerned now.\n\n');
+    s.push('<<mood:error>>\nError now.\n\n');
+    s.push('<<mood:happy>>\nHappy now. ');
+    s.flush();
+    expect(moods).toEqual(['neutral', 'focused', 'curious', 'concerned', 'error', 'happy']);
+    expect(chunks.join(' ')).not.toContain('<<');
   });
 
   it('holds a mood marker that is split across deltas (never speaks a half marker)', () => {

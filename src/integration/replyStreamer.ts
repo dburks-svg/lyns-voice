@@ -6,8 +6,9 @@
  * fully unit-tested. It owns three concerns that the one-shot `speak()` path
  * handled trivially on the complete reply but are subtle on a token stream:
  *
- *  1. The leading `<<mood:NAME>>` marker (always at the very start) sets the orb
- *     mood once, and is never spoken.
+ *  1. `<<mood:NAME>>` markers set the orb mood and are never spoken. A leading one
+ *     sets the opening mood; further markers anywhere in the reply recolor the orb
+ *     as it streams, so a story can shift mood per part.
  *  2. Conductor markers (`<<spawn|tell|propose:...>>`) can appear anywhere; they
  *     are stripped from spoken text. (Dispatching them is still done elsewhere, on
  *     the complete narration/turn-end text, so this module only has to MUTE them.)
@@ -26,7 +27,7 @@ import type { Mood } from '../mood/moods';
 export interface ReplyStreamerOptions {
   /** A speakable, marker-free chunk (one sentence, or the flushed tail). */
   onChunk: (text: string) => void;
-  /** Fired once per turn when a leading `<<mood:...>>` is resolved. */
+  /** Fired for each `<<mood:...>>` marker as it streams (leading or mid-reply). */
   onMood?: (mood: Mood) => void;
 }
 
@@ -49,36 +50,39 @@ const SENTENCE = /^([\s\S]*?[.!?]+["')\]]*)(\s+)([\s\S]*)$/;
 
 export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
   let buf = '';
-  let moodResolved = false;
   let didSpeak = false;
 
-  // Consume leading whitespace + any COMPLETE leading markers from `buf`, resolving
-  // the mood from the first mood marker. Returns 'wait' if the head is an INCOMPLETE
-  // marker (`<<` with no `>>` yet), meaning we must not touch the buffer until more
-  // text arrives.
+  // Apply a marker's mood the instant it is consumed (leading OR mid-reply), so a
+  // reply that shifts mood per part recolors the orb each time, not just once at the
+  // start. Non-mood markers (conductor spawn/tell/propose) yield no mood and are
+  // ignored here; they are still stripped from spoken text.
+  function applyMood(marker: string): void {
+    const { mood } = parseMoodMarker(marker);
+    if (mood) opts.onMood?.(mood);
+  }
+
+  // Consume leading whitespace + any COMPLETE leading markers from `buf`, applying
+  // each mood marker as it goes. Returns 'wait' if the head is an INCOMPLETE marker
+  // (`<<` with no `>>` yet), meaning we must not touch the buffer until more text
+  // arrives.
   function stripLeading(): 'ok' | 'wait' {
     for (;;) {
       const lead = buf.replace(/^\s+/, '');
       const leadingSpace = buf.length - lead.length;
-      if (!lead.startsWith('<<')) {
-        if (!moodResolved && lead.length > 0) moodResolved = true; // first real content
-        return 'ok';
-      }
+      if (!lead.startsWith('<<')) return 'ok';
       const close = lead.indexOf('>>');
       if (close === -1) return 'wait'; // incomplete leading marker; hold
       const marker = lead.slice(0, close + 2);
-      if (!moodResolved) {
-        const { mood } = parseMoodMarker(marker);
-        if (mood) {
-          opts.onMood?.(mood);
-          moodResolved = true;
-        }
-      }
+      applyMood(marker);
       buf = buf.slice(leadingSpace + marker.length); // drop space + marker, loop
     }
   }
 
   function emit(sentence: string): void {
+    // A mood marker embedded in this sentence (a mid-sentence shift) recolors the orb
+    // before every marker is stripped from the spoken text.
+    const markers = sentence.match(COMPLETE_MARKER);
+    if (markers) for (const mk of markers) applyMood(mk);
     const clean = sentence.replace(COMPLETE_MARKER, '').trim();
     if (clean) {
       didSpeak = true;
@@ -105,7 +109,11 @@ export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
     },
 
     flush(): void {
-      stripLeading(); // resolve a trailing-only mood marker / strip leading markers
+      stripLeading(); // apply a leading/trailing mood marker + strip leading markers
+      // A mood marker buffered in a terminator-less tail (no sentence boundary to
+      // emit it through) still recolors the orb before it is stripped below.
+      const markers = buf.match(COMPLETE_MARKER);
+      if (markers) for (const mk of markers) applyMood(mk);
       let rest = buf.replace(COMPLETE_MARKER, '');
       // Drop any dangling incomplete marker so half a `<<...` is never spoken.
       const open = rest.lastIndexOf('<<');
@@ -124,7 +132,6 @@ export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
 
     reset(): void {
       buf = '';
-      moodResolved = false;
       didSpeak = false;
     },
   };
