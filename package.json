@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "license": "MIT",
   "author": "Zamphere",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dburks-svg/Q-Control.git"
+  },
   "type": "module",
   "description": "Q: a Tauri v2 desktop app that is the voice and face of Claude Code (Three.js orb, on-device speech).",
   "engines": {
