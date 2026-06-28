@@ -15,6 +15,10 @@
 import { computeLevel } from './MicAnalyser';
 import { computeBands } from './bands';
 
+// The visual FFT (Listening level + bands) is cosmetic; 30fps is plenty and
+// halves the per-frame analysis + callback cost vs running on every rAF.
+const ANALYSIS_INTERVAL_MS = 1000 / 30;
+
 // The worklet is shipped from `public/` (served verbatim at the app root) rather
 // than imported: AudioWorklet code runs in its own global scope and cannot be a
 // normal ESM module, and a `?url` import of a .js is not emitted by Vite.
@@ -50,6 +54,7 @@ export class SttCapture {
   private buffer: Uint8Array<ArrayBuffer> = new Uint8Array(0);
   private bandsBuffer: Float32Array | null = null;
   private rafId = 0;
+  private lastAnalysis = 0;
   private active = false;
   private startToken = 0;
   private starting: Promise<boolean> | null = null;
@@ -160,10 +165,15 @@ export class SttCapture {
     return true;
   }
 
-  private loop(): void {
+  private loop(now = 0): void {
     if (!this.active || !this.analyser) {
       return;
     }
+    this.rafId = requestAnimationFrame((t) => this.loop(t));
+    if (now - this.lastAnalysis < ANALYSIS_INTERVAL_MS) {
+      return; // throttle the cosmetic FFT to ~30fps
+    }
+    this.lastAnalysis = now;
     this.analyser.getByteFrequencyData(this.buffer);
     this.opts.onLevel?.(computeLevel(this.buffer));
     if (this.opts.onBands) {
@@ -172,7 +182,6 @@ export class SttCapture {
       }
       this.opts.onBands(computeBands(this.buffer, this.bandCount, this.bandsBuffer));
     }
-    this.rafId = requestAnimationFrame(() => this.loop());
   }
 
   /** Stop capture and release the mic. */

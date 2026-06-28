@@ -52,14 +52,24 @@ async function bootstrap(): Promise<void> {
     uptime: byId('hud-uptime'),
   });
   panels.startUptime();
-  // One light rAF drives the oscilloscope every frame and the uptime ~4x/sec.
-  let uptimeThrottle = 0;
-  const tickPanels = (): void => {
-    panels.tickWave();
-    if ((uptimeThrottle = (uptimeThrottle + 1) % 15) === 0) {
+  // One light rAF drives the oscilloscope (~30fps) and the uptime ~1x/sec. It does
+  // no work while the window is hidden, and the 30fps cap (an SVG trace needs no
+  // more) keeps idle CPU low -- this loop runs for the whole session, so both the
+  // skip-when-hidden and the cap matter.
+  const WAVE_INTERVAL_MS = 1000 / 30;
+  let lastWave = 0;
+  let lastUptime = 0;
+  const tickPanels = (now: number): void => {
+    requestAnimationFrame(tickPanels);
+    if (document.hidden) return;
+    if (now - lastWave >= WAVE_INTERVAL_MS) {
+      lastWave = now;
+      panels.tickWave();
+    }
+    if (now - lastUptime >= 1000) {
+      lastUptime = now;
       panels.tickUptime();
     }
-    requestAnimationFrame(tickPanels);
   };
   requestAnimationFrame(tickPanels);
 
