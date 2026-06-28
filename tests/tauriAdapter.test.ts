@@ -9,6 +9,7 @@ import {
   type ListenFn,
   type AvatarLike,
 } from '../src/integration/tauriAdapter';
+import type { MediaTtsOptions, MediaTtsLike } from '../src/audio/MediaTts';
 
 describe('toArrayBuffer', () => {
   it('returns an ArrayBuffer unchanged', () => {
@@ -383,5 +384,55 @@ describe('attachTauri (Claude session binding)', () => {
     expect(handle.interrupt()).toBe(false);
     expect(calls.some((c) => c.cmd === 'claude_cancel')).toBe(false);
     handle.dispose();
+  });
+
+  // Regression: streaming fires pumpSpeech once per sentence, so sentences 2+ arrive
+  // during sentence 1's synthesis (before isSpeaking flips on). Without the `pumping`
+  // guard they started parallel syntheses, got shifted out of the queue, then dropped
+  // once playback began - so Q stopped after the first sentence. All must play in order.
+  it('plays every streamed sentence in order when they arrive during synthesis', async () => {
+    vi.useFakeTimers();
+    try {
+      const played: string[] = [];
+      // A fake MediaTts whose synth resolves on a microtask and whose playback ends on
+      // a 0ms timer - enough to recreate the synth->play race deterministically.
+      const fakeFactory = (opts: MediaTtsOptions): MediaTtsLike => {
+        let speaking = false;
+        return {
+          get isSpeaking() {
+            return speaking;
+          },
+          synthesize: (text: string) =>
+            Promise.resolve(text.trim() ? ({ __text: text } as unknown as AudioBuffer) : null),
+          playBuffer: (buf: AudioBuffer) => {
+            speaking = true;
+            opts.onSpeakingStart?.();
+            played.push((buf as unknown as { __text: string }).__text.trim());
+            setTimeout(() => {
+              speaking = false;
+              opts.onSpeakingEnd?.();
+            }, 0);
+            return Promise.resolve(true);
+          },
+          stop: () => {
+            speaking = false;
+          },
+          unlock: () => {},
+          dispose: () => {},
+        };
+      };
+
+      const { handle, handlers } = setup({ mediaTtsFactory: fakeFactory });
+      await handle.startClaude('C:/proj');
+      // One delta carrying three sentences: the streamer emits all three synchronously,
+      // firing pumpSpeech three times within the first synth window.
+      handlers['claude://claude-1/delta']({ text: 'First sentence. Second sentence. Third sentence. ' });
+      await vi.runAllTimersAsync();
+
+      expect(played).toEqual(['First sentence.', 'Second sentence.', 'Third sentence.']);
+      handle.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

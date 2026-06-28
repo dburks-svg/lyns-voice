@@ -21,7 +21,7 @@ import {
   type AvatarState,
   type ControllableAvatar,
 } from '../avatar/AvatarController';
-import { MediaTts, type MediaTtsOptions } from '../audio/MediaTts';
+import { MediaTts, type MediaTtsOptions, type MediaTtsLike } from '../audio/MediaTts';
 import { SttCapture } from '../audio/SttCapture';
 import { MoodController } from '../mood/MoodController';
 import { parseMoodMarker } from '../mood/moodProtocol';
@@ -246,6 +246,9 @@ export interface TauriAdapterOptions {
   avatarOptions?: AvatarOptions;
   /** Injectable renderer factory; defaults to the `QOrbAvatar`. */
   avatarFactory?: AvatarFactory;
+  /** Injectable TTS player factory; defaults to `new MediaTts`. Lets tests drive the
+   *  speech pump with a fake whose synth/playback timing they control. */
+  mediaTtsFactory?: (opts: MediaTtsOptions) => MediaTtsLike;
   /** Injectable `invoke`; defaults to lazy `@tauri-apps/api/core`. */
   invoke?: InvokeFn;
   /** Injectable event `listen`; defaults to lazy `@tauri-apps/api/event`. */
@@ -495,7 +498,8 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   // Server-audio TTS reused as native TTS: the WAV bytes come from Rust SAPI via
   // `tts_synthesize`, decoded and played through Web Audio, with the Speaking
   // animation driven off the real amplitude envelope.
-  const mediaTts = new MediaTts({
+  const makeMediaTts = options.mediaTtsFactory ?? ((o: MediaTtsOptions) => new MediaTts(o));
+  const mediaTts = makeMediaTts({
     fetchImpl: tauriTtsFetch(invoke, options.ttsSettings),
     onSpeakingStart,
     onSpeakingEnd,

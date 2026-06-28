@@ -66,7 +66,19 @@ export interface MediaTtsOptions {
   pollIntervalMs?: number;
 }
 
-export class MediaTts {
+/** The subset of MediaTts that attachTauri drives. Injectable (via the adapter's
+ *  mediaTtsFactory) so tests can supply a fake with controllable synth/playback
+ *  timing - the speech pump's ordering is otherwise not unit-testable. */
+export interface MediaTtsLike {
+  readonly isSpeaking: boolean;
+  synthesize(text: string): Promise<AudioBuffer | null>;
+  playBuffer(buffer: AudioBuffer): Promise<boolean>;
+  stop(): void;
+  unlock(): void;
+  dispose(): void;
+}
+
+export class MediaTts implements MediaTtsLike {
   private readonly endpoint: string;
   private readonly onSpeakingStart?: () => void;
   private readonly onSpeakingEnd?: () => void;
