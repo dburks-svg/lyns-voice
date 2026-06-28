@@ -54,6 +54,13 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    # On a `pull_request` event the gitleaks action lists the PR's commits via the API,
+    # which needs `pull-requests: read`; without it the default token returns 403
+    # "Resource not accessible by integration" and the job fails before scanning.
+    # `contents: read` covers checkout. (push-event scans don't hit that API.)
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
