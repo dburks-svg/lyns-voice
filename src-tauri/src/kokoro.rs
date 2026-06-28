@@ -47,7 +47,7 @@ const MODEL_SHA256: &str = "ba4527a874b42b21e35f468c10d326fdff3c7fc8cac1f85e9eb6
 const VOCAB_CONFIG_URL: &str = "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/config.json";
 const CONFIG_FILE: &str = "kokoro-vocab.json";
 
-const DEFAULT_VOICE: &str = "af_heart";
+const DEFAULT_VOICE: &str = "bf_emma";
 const SAMPLE_RATE: u32 = 24_000; // Kokoro's native output rate
 const CHANNELS: u16 = 1;
 const BITS: u16 = 16;

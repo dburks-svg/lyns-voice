@@ -2,6 +2,7 @@ import { VERSION } from '../index';
 import { THEME_PALETTES, type ThemeName } from '../config/config';
 import { attachTauri } from '../integration/tauriAdapter';
 import { TelemetryPanels } from '../integration/telemetry';
+import { voiceLabel } from '../integration/voices';
 import { attachDragResize } from './terminal/dragResize';
 import { TerminalManager } from './terminal/TerminalManager';
 import { DiffPanel, type DiffEntry } from './diff/DiffPanel';
@@ -733,7 +734,7 @@ function wireSettings(settings: AppSettings): void {
       for (const name of list) {
         const opt = document.createElement('option');
         opt.value = name;
-        opt.textContent = name;
+        opt.textContent = voiceLabel(name);
         voiceSelect.appendChild(opt);
       }
       // Validate the saved voice: if it was uninstalled, fall back to default and
