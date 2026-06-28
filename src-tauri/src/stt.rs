@@ -100,7 +100,7 @@ impl Transcriber {
                 text.push_str(part.as_ref());
             }
         }
-        Ok(text.trim().to_string())
+        Ok(strip_non_speech(&text))
     }
 
     /// Transcribe mono 16 kHz i16 PCM (the VAD pipeline's native format).
@@ -110,6 +110,29 @@ impl Transcriber {
             .map_err(|e| format!("whisper i16->f32: {e}"))?;
         self.transcribe_f32(&samples)
     }
+}
+
+/// Strip whisper's non-speech annotations - "[BLANK_AUDIO]", "[ Silence ]",
+/// "(wind blowing)", "[typing]" - which it emits for silence/noise. Removes every
+/// bracketed/parenthesized span (matched, nesting-aware) and returns the trimmed
+/// remainder, so pure-silence utterances collapse to "" (dropped upstream) while
+/// real speech alongside an annotation is preserved. Pure; unit-tested.
+fn strip_non_speech(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut sq = 0i32; // depth inside [ ]
+    let mut par = 0i32; // depth inside ( )
+    for c in text.chars() {
+        match c {
+            '[' => sq += 1,
+            ']' if sq > 0 => sq -= 1,
+            '(' => par += 1,
+            ')' if par > 0 => par -= 1,
+            _ if sq == 0 && par == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    // Collapse any whitespace an inline annotation left behind, then trim.
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 // --- Event payloads ---------------------------------------------------------
@@ -611,6 +634,19 @@ mod tests {
 
     fn frame() -> Vec<i16> {
         vec![0i16; FRAME]
+    }
+
+    #[test]
+    fn strip_non_speech_drops_blank_audio_and_keeps_real_speech() {
+        // Pure whisper silence/non-speech annotations collapse to empty (dropped upstream).
+        assert_eq!(strip_non_speech("[BLANK_AUDIO]"), "");
+        assert_eq!(strip_non_speech("[ Silence ]"), "");
+        assert_eq!(strip_non_speech("(wind blowing)"), "");
+        // Real speech is preserved; an inline annotation is removed and spacing collapsed.
+        assert_eq!(strip_non_speech("Hello there"), "Hello there");
+        assert_eq!(strip_non_speech("read [BLANK_AUDIO] the file"), "read the file");
+        // Stray unmatched brackets are kept (not an annotation).
+        assert_eq!(strip_non_speech("array]"), "array]");
     }
 
     #[test]
