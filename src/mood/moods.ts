@@ -35,11 +35,13 @@ export interface MoodVisual {
 export const MOOD_TABLE: Record<Mood, MoodVisual> = {
   // weight 0 => pass-through: neutral equals the pre-mood look exactly.
   neutral: { rim: 0x00f0ff, core: 0x0077ff, glowMul: 1.0, flutter: 0.0, weight: 0.0 },
-  focused: { rim: 0x2a7bff, core: 0x0a2a66, glowMul: 1.05, flutter: 0.0, weight: 0.45 },
-  happy: { rim: 0x46ffd0, core: 0x0a9d7a, glowMul: 1.2, flutter: 0.0, weight: 0.6 },
-  curious: { rim: 0x9a6bff, core: 0x3a1f8f, glowMul: 1.1, flutter: 0.1, weight: 0.55 },
-  concerned: { rim: 0xffc24d, core: 0x8a5a10, glowMul: 1.1, flutter: 0.15, weight: 0.6 },
-  error: { rim: 0xff4d5e, core: 0x7a1020, glowMul: 1.25, flutter: 0.35, weight: 0.7 },
+  // High-contrast palette: each rim is well separated from the base cyan and from the
+  // others; core is the rim at ~50% brightness (same hue, deeper companion).
+  focused: { rim: 0x7c4dff, core: 0x3e2780, glowMul: 1.05, flutter: 0.0, weight: 0.45 },
+  happy: { rim: 0x00e676, core: 0x00733b, glowMul: 1.2, flutter: 0.0, weight: 0.6 },
+  curious: { rim: 0xe040fb, core: 0x70207e, glowMul: 1.1, flutter: 0.1, weight: 0.55 },
+  concerned: { rim: 0xffab00, core: 0x805600, glowMul: 1.1, flutter: 0.15, weight: 0.6 },
+  error: { rim: 0xff1744, core: 0x800c22, glowMul: 1.25, flutter: 0.35, weight: 0.7 },
 };
 
 export function isMood(value: string): value is Mood {
