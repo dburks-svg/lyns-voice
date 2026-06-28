@@ -9,7 +9,7 @@
  * neutral mood) the avatar looks exactly as it did before moods existed.
  */
 
-import { lerp, lerpHex } from './colorBlend';
+import { lerp, lerpHex, toRgb, packRgb } from './colorBlend';
 import { MOOD_TABLE, type Mood } from './moods';
 
 /** The view the AvatarController has of the mood layer. */
@@ -32,9 +32,14 @@ const MAX_GLOW = 3.5;
 export class MoodController implements MoodLayer {
   private current: Mood = 'neutral';
 
-  // Eased state, initialised to neutral (weight 0 => pass-through).
-  private eRim = MOOD_TABLE.neutral.rim;
-  private eCore = MOOD_TABLE.neutral.core;
+  // Eased state, initialised to neutral (weight 0 => pass-through). Rim/core are kept
+  // as FLOAT [r,g,b] channels, NOT packed ints: easing a packed int in place stalls
+  // because lerpHex rounds every step and a sub-0.5 per-frame delta rounds to zero, so
+  // a small channel gap (e.g. neutral->happy green, 240->255) never closes and the mood
+  // color never reaches its target (worse at high refresh rates, where the per-frame
+  // step is smaller). Float channels, rounded only at output, converge correctly.
+  private eRim: [number, number, number] = toRgb(MOOD_TABLE.neutral.rim);
+  private eCore: [number, number, number] = toRgb(MOOD_TABLE.neutral.core);
   private eWeight = MOOD_TABLE.neutral.weight;
   private eGlowMul = MOOD_TABLE.neutral.glowMul;
   private eFlutter = MOOD_TABLE.neutral.flutter;
@@ -55,8 +60,13 @@ export class MoodController implements MoodLayer {
     this.lastTime = time;
     const a = dt <= 0 ? 0 : Math.min(1, dt / EASE_SECONDS);
     const target = MOOD_TABLE[this.current];
-    this.eRim = lerpHex(this.eRim, target.rim, a);
-    this.eCore = lerpHex(this.eCore, target.core, a);
+    // Ease each rim/core channel in float space (inlined to avoid a per-frame alloc).
+    this.eRim[0] = lerp(this.eRim[0], (target.rim >> 16) & 255, a);
+    this.eRim[1] = lerp(this.eRim[1], (target.rim >> 8) & 255, a);
+    this.eRim[2] = lerp(this.eRim[2], target.rim & 255, a);
+    this.eCore[0] = lerp(this.eCore[0], (target.core >> 16) & 255, a);
+    this.eCore[1] = lerp(this.eCore[1], (target.core >> 8) & 255, a);
+    this.eCore[2] = lerp(this.eCore[2], target.core & 255, a);
     this.eWeight = lerp(this.eWeight, target.weight, a);
     this.eGlowMul = lerp(this.eGlowMul, target.glowMul, a);
     // Ease the shimmer amplitude too, so it ramps in with the color/glow rather
@@ -66,7 +76,9 @@ export class MoodController implements MoodLayer {
   }
 
   colors(activityRim: number, activityCore: number): readonly [number, number] {
-    return [lerpHex(activityRim, this.eRim, this.eWeight), lerpHex(activityCore, this.eCore, this.eWeight)];
+    const eRim = packRgb(this.eRim[0], this.eRim[1], this.eRim[2]);
+    const eCore = packRgb(this.eCore[0], this.eCore[1], this.eCore[2]);
+    return [lerpHex(activityRim, eRim, this.eWeight), lerpHex(activityCore, eCore, this.eWeight)];
   }
 
   glow(activityGlow: number): number {

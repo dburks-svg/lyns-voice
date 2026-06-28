@@ -16,6 +16,16 @@ export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * clamp01(t);
 }
 
+/** Split a hex color into its [r, g, b] channels (0..255). */
+export function toRgb(hex: number): [number, number, number] {
+  return [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
+}
+
+/** Pack [r, g, b] (floats allowed) into a hex color, rounding each channel. */
+export function packRgb(r: number, g: number, b: number): number {
+  return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+}
+
 /** Channel-wise linear interpolation between two hex colors (t clamped). */
 export function lerpHex(a: number, b: number, t: number): number {
   const u = clamp01(t);

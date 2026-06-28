@@ -120,6 +120,21 @@ describe('MoodController', () => {
     expect(mc.mood).toBe('error');
   });
 
+  it('reaches the full mood tint at a high frame rate (regression: no integer ease stall)', () => {
+    const mc = new MoodController();
+    mc.setMood('happy');
+    // 120 fps for 3 s. The old packed-int ease stalled here: a sub-0.5 per-frame delta
+    // rounded to zero, so the small neutral->happy green gap (240->255) never closed and
+    // the orb stayed cyan. Float-channel easing must converge to the full tint.
+    for (let i = 1; i <= 360; i += 1) mc.tick(i / 120);
+    const [rim] = mc.colors(0x00f0ff, 0x0077ff);
+    const ideal = lerpHex(0x00f0ff, MOOD_TABLE.happy.rim, MOOD_TABLE.happy.weight);
+    const chan = (c: number, shift: number): number => (c >> shift) & 255;
+    for (const shift of [16, 8, 0]) {
+      expect(Math.abs(chan(rim, shift) - chan(ideal, shift))).toBeLessThanOrEqual(3);
+    }
+  });
+
   it('every mood has a complete visual entry', () => {
     for (const visual of Object.values(MOOD_TABLE)) {
       expect(typeof visual.rim).toBe('number');
