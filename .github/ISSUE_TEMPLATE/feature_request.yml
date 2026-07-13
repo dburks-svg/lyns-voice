@@ -1,0 +1,22 @@
+name: Feature request
+description: An idea that would make LYNS Voice better
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem or wish
+      description: What are you trying to do that LYNS Voice does not do (or makes harder than it should be)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds or alternatives you have considered

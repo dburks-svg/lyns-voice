@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and general feedback
+    url: https://github.com/dburks-svg/lyns-voice/discussions
+    about: Ask anything, share how you use it, or just say the wake word worked.
+  - name: Security vulnerability
+    url: https://github.com/dburks-svg/lyns-voice/security/advisories/new
+    about: Please report security issues privately, never as a public issue.

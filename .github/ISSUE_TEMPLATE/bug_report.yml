@@ -1,0 +1,54 @@
+name: Bug report
+description: Something broke - a crash, a wrong behavior, a voice-loop failure
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A minute of detail here usually saves a day of guessing.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: 'Said "Oracle, run the tests" and the orb went to Thinking but no session activity appeared...'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch LYNS Voice
+        2. Connect Claude to a project folder
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Voice loop (mic, wake word, transcription)
+        - Speech output (TTS, pauses, pronunciation)
+        - Claude sessions / conductor
+        - Library (MCP servers, hooks)
+        - HUD / panels / terminal / diffs
+        - Install / build / startup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, mic setup, and whether you run the installer build or `tauri dev`.
+      placeholder: "Windows 11 23H2, USB headset mic, installer build 1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Anything from the console or a screenshot of the moment it went wrong. Please blur or trim anything private.
