@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-demo/
+
+# Test / coverage / e2e artifacts
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Injector backups produced in a host package (never committed here)
+*.avatar-backup
+
+# Local Claude Code hook config (written by mcp-voice-hooks install-hooks)
+.claude/
+
+# Local cargo build override (machine-specific target dir; works around AV
+# blocking build-script exes under D:\, see .cargo/config.toml)
+.cargo/config.toml
+
+# Tauri Rust build output (in case target-dir ever resolves locally)
+src-tauri/target/

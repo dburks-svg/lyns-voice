@@ -1,0 +1,242 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { SpeechReactor } from '../src/audio/SpeechReactor';
+
+function fakeUtterance(): SpeechSynthesisUtterance {
+  return new EventTarget() as unknown as SpeechSynthesisUtterance;
+}
+
+function boundaryEvent(name: string): Event {
+  const event = new Event('boundary');
+  Object.assign(event, { name });
+  return event;
+}
+
+describe('SpeechReactor', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('wraps speak, reports start/word-boundary/end, and still calls the original speak', () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const onSpeakingStart = vi.fn();
+    const onSpeakingEnd = vi.fn();
+    const onBoundary = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingStart, onSpeakingEnd, onBoundary });
+    reactor.attach();
+
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    expect(speak).toHaveBeenCalledWith(utterance);
+
+    utterance.dispatchEvent(new Event('start'));
+    expect(onSpeakingStart).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(true);
+
+    utterance.dispatchEvent(boundaryEvent('word'));
+    expect(onBoundary).toHaveBeenCalledTimes(1);
+    utterance.dispatchEvent(boundaryEvent('sentence'));
+    expect(onBoundary).toHaveBeenCalledTimes(1); // non-word boundaries ignored
+
+    utterance.dispatchEvent(new Event('end'));
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(false);
+  });
+
+  it('emits a synthetic envelope when no native boundaries arrive, then yields to native ones', () => {
+    vi.useFakeTimers();
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onBoundary = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onBoundary, syntheticIntervalMs: 100 });
+    reactor.attach();
+
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+
+    vi.advanceTimersByTime(100);
+    expect(onBoundary).toHaveBeenCalledTimes(1); // synthetic impulse
+
+    utterance.dispatchEvent(boundaryEvent('word')); // a real boundary arrives
+    expect(onBoundary).toHaveBeenCalledTimes(2);
+
+    vi.advanceTimersByTime(300);
+    expect(onBoundary).toHaveBeenCalledTimes(2); // synthetic suppressed once native seen
+  });
+
+  it('detach restores the original speak so new utterances are not bound', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onSpeakingStart = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingStart });
+    reactor.attach();
+    reactor.detach();
+
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+    expect(onSpeakingStart).not.toHaveBeenCalled();
+  });
+
+  it('attaching twice wraps speak only once', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const wrapped = synthesis.speak;
+    reactor.attach();
+    expect(synthesis.speak).toBe(wrapped);
+  });
+
+  it('attach is a safe no-op when no synthesis is available', () => {
+    const reactor = new SpeechReactor({ synthesis: undefined });
+    expect(() => reactor.attach()).not.toThrow();
+    expect(reactor.isSpeaking).toBe(false);
+  });
+
+  it('never blocks speech: a throwing binding still calls the original speak', () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const hostile = {
+      addEventListener: () => {
+        throw new Error('boom');
+      },
+    } as unknown as SpeechSynthesisUtterance;
+    expect(() => synthesis.speak(hostile)).not.toThrow();
+    expect(speak).toHaveBeenCalledWith(hostile);
+  });
+
+  it('holds a strong reference to the utterance until it ends (anti-GC)', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    expect(reactor.aliveCount).toBe(1);
+    utterance.dispatchEvent(new Event('end'));
+    expect(reactor.aliveCount).toBe(0);
+  });
+
+  it('releases the held reference on error too', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    expect(reactor.aliveCount).toBe(1);
+    utterance.dispatchEvent(new Event('error'));
+    expect(reactor.aliveCount).toBe(0);
+  });
+
+  it('resumes a paused engine before speaking, but not a running one', () => {
+    const resume = vi.fn();
+    const paused = { speak: vi.fn(), paused: true, resume } as unknown as SpeechSynthesis;
+    const r1 = new SpeechReactor({ synthesis: paused });
+    r1.attach();
+    paused.speak(fakeUtterance());
+    expect(resume).toHaveBeenCalledTimes(1);
+
+    const running = { speak: vi.fn(), paused: false, resume: vi.fn() } as unknown as SpeechSynthesis;
+    const r2 = new SpeechReactor({ synthesis: running });
+    r2.attach();
+    running.speak(fakeUtterance());
+    expect(running.resume).not.toHaveBeenCalled();
+  });
+
+  it('detach drops all held references', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const reactor = new SpeechReactor({ synthesis });
+    reactor.attach();
+    synthesis.speak(fakeUtterance());
+    expect(reactor.aliveCount).toBe(1);
+    reactor.detach();
+    expect(reactor.aliveCount).toBe(0);
+  });
+
+  it('maps a speech error to a speaking-end transition', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onSpeakingEnd = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingEnd });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+    utterance.dispatchEvent(new Event('error'));
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(false);
+  });
+
+  it('routes through mediaSpeak and skips native speak when it handles the text', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(true);
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hello' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mediaSpeak).toHaveBeenCalledWith('hello');
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it('falls back to native speak when mediaSpeak declines', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(false);
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hi' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(speak).toHaveBeenCalledWith(utterance);
+  });
+
+  it('falls back to native speak when mediaSpeak rejects', async () => {
+    const speak = vi.fn();
+    const synthesis = { speak } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockRejectedValue(new Error('boom'));
+    const reactor = new SpeechReactor({ synthesis, mediaSpeak });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: 'hi' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(speak).toHaveBeenCalledWith(utterance);
+  });
+
+  it('mood-strips the text before routing it to mediaSpeak', async () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const mediaSpeak = vi.fn().mockResolvedValue(true);
+    const reactor = new SpeechReactor({
+      synthesis,
+      mediaSpeak,
+      transformText: (t) => t.replace('<<mood:happy>> ', ''),
+    });
+    reactor.attach();
+
+    const utterance = Object.assign(new EventTarget(), { text: '<<mood:happy>> done' }) as unknown as SpeechSynthesisUtterance;
+    synthesis.speak(utterance);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mediaSpeak).toHaveBeenCalledWith('done');
+  });
+
+  it('detach while speaking emits a terminal end so consumers do not latch', () => {
+    const synthesis = { speak: vi.fn() } as unknown as SpeechSynthesis;
+    const onSpeakingEnd = vi.fn();
+    const reactor = new SpeechReactor({ synthesis, onSpeakingEnd });
+    reactor.attach();
+    const utterance = fakeUtterance();
+    synthesis.speak(utterance);
+    utterance.dispatchEvent(new Event('start'));
+    expect(reactor.isSpeaking).toBe(true);
+    reactor.detach();
+    expect(onSpeakingEnd).toHaveBeenCalledTimes(1);
+    expect(reactor.isSpeaking).toBe(false);
+  });
+});

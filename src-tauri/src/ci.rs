@@ -1,0 +1,57 @@
+use serde::Serialize;
+use std::process::Command;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[derive(Clone, Serialize)]
+pub struct CiStatus {
+    pub state: String,
+}
+
+#[tauri::command]
+pub async fn ci_status() -> Result<CiStatus, String> {
+    let mut cmd = Command::new("gh");
+    cmd.args(["run", "list", "--limit", "1", "--json", "status,conclusion"]);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = cmd
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "gh CLI not found on PATH (install GitHub CLI to see CI status)".to_string()
+            } else {
+                format!("failed to run gh: {e}")
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("gh failed: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let runs: Vec<serde_json::Value> =
+        serde_json::from_str(&stdout).map_err(|e| format!("parse error: {e}"))?;
+
+    let state = match runs.first() {
+        None => "unknown".to_string(),
+        Some(run) => {
+            let status = run.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let conclusion = run.get("conclusion").and_then(|v| v.as_str()).unwrap_or("");
+            match status {
+                "completed" => match conclusion {
+                    "success" => "green",
+                    _ => "red",
+                }
+                .to_string(),
+                "in_progress" | "queued" | "waiting" | "pending" | "requested" => {
+                    "yellow".to_string()
+                }
+                _ => "unknown".to_string(),
+            }
+        }
+    };
+
+    Ok(CiStatus { state })
+}

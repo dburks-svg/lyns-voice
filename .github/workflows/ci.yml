@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      # `npm install`, not `npm ci`: the lockfile is generated on Windows, but the
+      # Vite 8 native toolchain (rolldown/oxc -> @napi-rs/wasm-runtime -> @emnapi/*)
+      # resolves a wasm fallback on Linux that Windows never installs, so a
+      # Windows-authored lockfile can't satisfy strict `npm ci` here. `npm install`
+      # reconciles per-platform. (Private personal repo; strict pinning not needed.)
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install chromium --with-deps
+      - run: npm run test:e2e
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Tauri v2 + whisper-rs (bindgen/cmake) + ort build prerequisites. webkit2gtk
+      # 4.1 is the Tauri 2 webview; libclang-dev lets whisper-rs bindgen find libclang;
+      # cmake builds whisper-rs-sys. ort downloads onnxruntime at build time.
+      - name: Install Tauri + build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev libssl-dev \
+            build-essential curl wget file cmake libclang-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # Compiles the Tauri app crate (so Rust regressions are caught in CI, not just
+      # locally) and runs the hermetic unit tests; the model/engine-driven tests are
+      # #[ignore] and skipped.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --lib
+
+  security:
+    runs-on: ubuntu-latest
+    # On a `pull_request` event the gitleaks action lists the PR's commits via the API,
+    # which needs `pull-requests: read`; without it the default token returns 403
+    # "Resource not accessible by integration" and the job fails before scanning.
+    # `contents: read` covers checkout. (push-event scans don't hit that API.)
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans the pushed commit range, so it needs full history,
+          # not the default shallow (depth 1) clone.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      # Dependency + secret audits. The dep audits are informational (advisories the
+      # owner can triage); the secret scan is blocking (secrets must never land).
+      - name: npm audit (high and up)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+        continue-on-error: true
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

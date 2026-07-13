@@ -1,0 +1,414 @@
+/*
+ * Q avatar styles, shared by the standalone demo and the injected
+ * mcp-voice-hooks page.
+ *
+ * Demo: full-window dark stage with a centered, glowing canvas and a floating
+ * neon control panel. Host ("Q only" takeover): the head fills the window,
+ * the voice UI chrome is hidden, and a reply caption + tap-to-talk control are
+ * layered on top (see the takeover block at the end of this file).
+ */
+
+:root {
+  --avatar-bg: #02040a;
+  --avatar-cyan: #00f0ff;
+  --avatar-blue: #0077ff;
+  --avatar-text: #9fb6d4;
+  --avatar-panel: rgba(6, 14, 26, 0.72);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/*
+ * The dark neon stage applies ONLY to the standalone demo (body.q-demo) and
+ * the injected "Q only" takeover (body.q-takeover). A plain injected
+ * host that is NOT in takeover keeps the voice UI's own light theme, so the dark
+ * stage never bleeds through behind it.
+ */
+body.q-demo,
+body.q-takeover {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(0, 119, 255, 0.12), transparent 60%),
+    var(--avatar-bg);
+  color: var(--avatar-text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+#avatar-root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+/* The glowing digital head is the focal point. */
+#avatar-root canvas {
+  display: block;
+  /* Purely visual: never intercept clicks meant for the control panel. */
+  pointer-events: none;
+  filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.45))
+    drop-shadow(0 0 48px rgba(0, 119, 255, 0.35));
+}
+
+/* Floating neon control panel. */
+#controls {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  padding: 10px 14px;
+  background: var(--avatar-panel);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 24px rgba(0, 119, 255, 0.18);
+  max-width: calc(100vw - 24px);
+  z-index: 10;
+}
+
+#controls button {
+  appearance: none;
+  cursor: pointer;
+  color: var(--avatar-cyan);
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+#controls button:hover {
+  background: rgba(0, 240, 255, 0.16);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+}
+
+#controls button:active {
+  transform: translateY(1px);
+}
+
+#status {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/*
+ * Host overlay: a full-window background layer so the glowing head is the
+ * focal point behind the voice UI. `pointer-events: none` plus a low z-index
+ * keep the host UI fully interactive on top. (Host-specific stacking fixes, if
+ * any prove necessary, are added after live verification, not pre-emptively.)
+ */
+#q-avatar-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, rgba(0, 119, 255, 0.14), transparent 62%), transparent;
+}
+
+/* Canvas fills the overlay so the camera aspect matches the displayed size. */
+#q-avatar-overlay canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 22px rgba(0, 240, 255, 0.42)) drop-shadow(0 0 60px rgba(0, 119, 255, 0.3));
+}
+
+/* Shrink the control panel on small/short windows (floating side-panel mode). */
+@media (max-width: 520px), (max-height: 420px) {
+  #controls {
+    bottom: 12px;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  #controls button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #controls button {
+    transition: none;
+  }
+}
+
+/* =======================================================================
+ * "Q only" takeover: the injected host becomes a full-screen avatar.
+ * Every rule is scoped to body.q-takeover (or its absence), so the
+ * standalone demo and a non-takeover host are unaffected. The host voice UI is
+ * hidden but kept in the DOM and fully functional.
+ * ===================================================================== */
+
+/* The avatar overlay is the focal layer in takeover mode; hidden otherwise so a
+ * classic host stays pristine (no head bleeding over the light voice UI). */
+body:not(.q-takeover) #q-avatar-overlay {
+  display: none;
+}
+body.q-takeover #q-avatar-overlay {
+  z-index: 1;
+}
+
+/* Hide the host's voice-UI chrome section-by-section, keeping every node in the
+ * DOM and functional: the mic button is clicked programmatically,
+ * #conversationMessages is still observed, and the Voice Settings subtree is
+ * surfaced on demand (the gear). We hide per-section rather than clipping the
+ * whole container so the settings descendant can be revealed without an
+ * opacity/clip ancestor forcing it invisible. */
+body.q-takeover .app-container {
+  background: transparent;
+  max-width: none;
+  box-shadow: none;
+}
+body.q-takeover .app-header,
+body.q-takeover .conversation-section,
+body.q-takeover .send-mode-controls,
+body.q-takeover .input-container {
+  display: none;
+}
+body.q-takeover .input-section {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+/* Voice Settings: hidden until the gear opens it, then shown as a floating dark
+ * panel layered over the avatar (so the user never has to leave Q view). */
+body.q-takeover .settings-toggle {
+  display: none;
+}
+body.q-takeover.q-settings-open .settings-toggle {
+  display: block;
+  position: fixed;
+  top: 58px;
+  right: 14px;
+  z-index: 5;
+  width: min(360px, 92vw);
+  max-height: 72vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 14px 16px;
+  background: rgba(6, 14, 26, 0.97);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+}
+/* Force the settings body open (the host collapses it until its own header click). */
+body.q-takeover.q-settings-open #settingsContent {
+  display: block;
+}
+/* Dark-theme the host's light settings controls inside the floating panel. */
+body.q-takeover.q-settings-open .settings-toggle .toggle-header h3,
+body.q-takeover.q-settings-open .settings-toggle label,
+body.q-takeover.q-settings-open .settings-toggle .voice-response-label {
+  color: #cfe6ff;
+}
+body.q-takeover.q-settings-open .settings-toggle .toggle-header:hover {
+  background: rgba(0, 240, 255, 0.08);
+}
+body.q-takeover.q-settings-open .settings-toggle .voice-response-control {
+  background: rgba(0, 240, 255, 0.06);
+}
+body.q-takeover.q-settings-open .settings-toggle select,
+body.q-takeover.q-settings-open .settings-toggle input[type="number"] {
+  background: #0d1726;
+  color: #e6f3ff;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+}
+
+/* Latest reply, large and readable (also lets you READ replies when TTS is off). */
+#q-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 136px;
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: min(900px, 88vw);
+  margin: 0;
+  padding: 0 16px;
+  text-align: center;
+  font-size: clamp(16px, 2.4vw, 28px);
+  line-height: 1.45;
+  color: #d8ecff;
+  text-shadow:
+    0 0 12px rgba(0, 200, 255, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+#q-caption.show {
+  opacity: 1;
+}
+
+/* Single tap-to-talk control (proxies the host mic button). */
+#q-talk {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 240, 255, 0.6);
+  background: radial-gradient(circle at 50% 35%, rgba(0, 240, 255, 0.18), rgba(6, 14, 26, 0.85));
+  color: var(--avatar-cyan);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 24px rgba(0, 119, 255, 0.35);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+#q-talk:hover {
+  box-shadow: 0 0 34px rgba(0, 240, 255, 0.5);
+}
+#q-talk:active {
+  transform: translateX(-50%) scale(0.94);
+}
+#q-talk svg {
+  width: 30px;
+  height: 30px;
+  fill: currentColor;
+  pointer-events: none;
+}
+#q-talk[data-state="listening"] {
+  border-color: #ff5a7a;
+  color: #ff8aa0;
+  animation: qTalkPulse 1.4s ease-in-out infinite;
+}
+#q-talk[data-state="thinking"] {
+  border-color: #33e0ff;
+  color: #aef0ff;
+}
+#q-talk[data-state="speaking"] {
+  border-color: #00a0ff;
+  color: #7fd0ff;
+}
+@keyframes qTalkPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 90, 122, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(255, 90, 122, 0);
+  }
+}
+
+/* State word under the control. */
+#q-talk-label {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--avatar-text);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Top-right control cluster: gear (voice settings) + mode toggle. Always
+ * available (both modes) so the user is never trapped. */
+#q-controls {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 4;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#q-mode-toggle,
+#q-gear {
+  font-family: "Courier New", "Courier", monospace;
+  color: var(--avatar-text);
+  background: rgba(6, 14, 26, 0.6);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+}
+#q-mode-toggle {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+#q-gear {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+#q-mode-toggle:hover,
+#q-gear:hover {
+  color: var(--avatar-cyan);
+  border-color: rgba(0, 240, 255, 0.6);
+}
+body.q-settings-open #q-gear {
+  color: var(--avatar-cyan);
+  border-color: rgba(0, 240, 255, 0.7);
+  background: rgba(0, 240, 255, 0.12);
+}
+/* The gear is only meaningful in takeover mode (classic has its own settings). */
+body:not(.q-takeover) #q-gear {
+  display: none;
+}
+/* In classic mode the toggle adopts the host's light look so it is legible. */
+body:not(.q-takeover) #q-mode-toggle {
+  color: #666;
+  background: #fff;
+  border: 1px solid #ddd;
+}
+
+/* Caption, talk control, and label render only in takeover mode. */
+body:not(.q-takeover) #q-caption,
+body:not(.q-takeover) #q-talk,
+body:not(.q-takeover) #q-talk-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #q-talk[data-state="listening"] {
+    animation: none;
+  }
+  #q-caption {
+    transition: none;
+  }
+}

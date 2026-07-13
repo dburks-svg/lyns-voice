@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:allow-open",
+    "core:window:allow-request-user-attention",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-min-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-position"
+  ]
+}

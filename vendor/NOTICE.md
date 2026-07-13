@@ -1,0 +1,20 @@
+# Vendored third-party assets
+
+`head.glb` is committed so the avatar runs 100% locally (no runtime CDN fetch).
+Three.js is now a normal npm dependency (ESM, bundled by Vite), no longer
+vendored as a UMD global.
+
+## head.glb
+
+The default avatar head mesh. Currently the "Lee Perry-Smith" head scan
+(`LeePerrySmith.glb`) from the Three.js example assets.
+
+- Author: Lee Perry-Smith / Infinite Realities (https://ir-ltd.net).
+- License: Creative Commons Attribution 3.0 (CC-BY 3.0).
+- Source: https://github.com/mrdoob/three.js (examples/models/gltf/LeePerrySmith).
+- Stats: single mesh, ~9,279 vertices, vertex normals present, no Draco.
+
+This is a realistic head used as a proven default for the loader pipeline. It is
+swappable at runtime via the `headUrl` config field, so it can be replaced with a
+CC0 / featureless mannequin head, or any uncompressed (non-Draco) GLB whose first
+mesh carries POSITION (and ideally NORMAL) attributes, without code changes.
