@@ -15,7 +15,7 @@ import { detectGpu } from '../../avatar/gpu';
 export function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.codePointAt(i) ?? 0;
   return bytes;
 }
 
@@ -32,8 +32,8 @@ interface TauriApi {
 
 export class TerminalInstance {
   readonly term: Terminal;
-  private fitAddon: FitAddon;
-  private unlisteners: UnlistenFn[] = [];
+  private readonly fitAddon: FitAddon;
+  private readonly unlisteners: UnlistenFn[] = [];
   private resizeObserver: ResizeObserver | null = null;
   private destroyed = false;
 

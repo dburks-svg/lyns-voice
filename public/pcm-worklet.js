@@ -38,7 +38,10 @@ class Pcm16kProcessor extends AudioWorkletProcessor {
       // Linear interpolation between samples i-1 and i (evaluated at _pos-1, i.e. a
       // fixed ~1-input-sample group delay; harmless for STT). i-1 == -1 uses the
       // tail carried from the previous quantum.
-      const a = i <= 0 ? (this._haveTail ? this._prevTail : channel[0]) : channel[i - 1];
+      let a;
+      if (i > 0) a = channel[i - 1];
+      else if (this._haveTail) a = this._prevTail;
+      else a = channel[0];
       const b = channel[i];
       let s = a + (b - a) * frac;
       if (s > 1) s = 1;

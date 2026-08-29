@@ -41,11 +41,11 @@ interface ManagedSession {
 }
 
 export class SessionManager {
-  private sessions = new Map<string, ManagedSession>();
+  private readonly sessions = new Map<string, ManagedSession>();
   private counter = 0;
   private zTop = 12;
 
-  constructor(private deps: SessionManagerDeps) {}
+  constructor(private readonly deps: SessionManagerDeps) {}
 
   get count(): number {
     return this.sessions.size;
@@ -83,7 +83,7 @@ export class SessionManager {
       return null;
     }
 
-    const name = opts?.name?.trim() || `Session ${String.fromCharCode(65 + (this.counter % 26))}`;
+    const name = opts?.name?.trim() || `Session ${String.fromCodePoint(65 + (this.counter % 26))}`;
     this.counter += 1;
     // Cascade new windows far enough that each is clearly its own panel, not stacked on
     // the last (the conductor can open several at once).
@@ -161,6 +161,8 @@ export class SessionManager {
   }
 
   closeAll(): void {
-    for (const id of [...this.sessions.keys()]) this.close(id);
+    // Deleting the entry being visited is spec-safe for Map iteration, and
+    // close() only ever deletes its own id.
+    for (const id of this.sessions.keys()) this.close(id);
   }
 }

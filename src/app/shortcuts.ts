@@ -63,7 +63,6 @@ export function attachShortcuts(actions: ShortcutActions): () => void {
     if (e.key === ' ' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.repeat) {
       e.preventDefault();
       actions.toggleMic();
-      return;
     }
   }, { signal: ac.signal });
 

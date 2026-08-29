@@ -568,7 +568,7 @@ body[data-state="speaking"] {
 }
 .t-text {
   color: #cfe9f5;
-  word-break: break-word;
+  overflow-wrap: break-word;
   user-select: text;
 }
 .t-q .t-text {

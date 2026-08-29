@@ -89,8 +89,11 @@ export interface LoadHeadOptions {
  * caller keeps the orb fallback.
  */
 export function loadHeadGeometry(options: LoadHeadOptions): Promise<THREE.BufferGeometry> {
-  const toError = (err: unknown): Error =>
-    err instanceof Error ? err : new Error(String(err ?? 'Failed to load head model'));
+  const toError = (err: unknown): Error => {
+    if (err instanceof Error) return err;
+    if (typeof err === 'string' && err) return new Error(err);
+    return new Error('Failed to load head model');
+  };
   return new Promise<THREE.BufferGeometry>((resolve, reject) => {
     let loader: GLTFLoaderLike;
     try {

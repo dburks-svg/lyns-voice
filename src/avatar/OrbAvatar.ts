@@ -301,7 +301,7 @@ export class OrbAvatar {
     this.orb?.setPaused(false);
     const loop = (nowMs: number): void => {
       this.rafId = requestAnimationFrame(loop);
-      if (this.startTimeMs === null) this.startTimeMs = nowMs;
+      this.startTimeMs ??= nowMs;
       // The controller's tick expects SECONDS; rAF hands us ms.
       this.beforeRender?.((nowMs - this.startTimeMs) / 1000);
       this.applyToOrb();
@@ -326,7 +326,7 @@ export class OrbAvatar {
     this.orb?.dispose();
     this.orb = null;
     if (this.container && this.canvas.parentNode === this.container) {
-      this.container.removeChild(this.canvas);
+      this.canvas.remove();
     }
     this.container = null;
   }

@@ -161,7 +161,7 @@ export class AvatarController {
     // shimmer. With no bands the behaviour is byte-identical to the level-only
     // version (bass = level, treble = 0).
     const bass = bands ? bands[0] : this.micLevel;
-    const treble = bands ? bands[bands.length - 1] : 0;
+    const treble = bands ? (bands.at(-1) ?? 0) : 0;
     this.avatar.setParams({ amplitude: 0.05 + bass * 0.5, frequency: 1.4 + treble * 0.6, speed: 0.9 });
     this.emitGlow(1.2 + bass * 0.8 + treble * 0.3);
     this.emitColors(palette.neonRim, palette.listeningCore);

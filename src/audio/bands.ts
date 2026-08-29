@@ -17,7 +17,7 @@ export function computeBands(data: Uint8Array, bandCount: number, out?: Float32A
   const count = Math.max(0, Math.floor(bandCount));
   // Reuse the caller's buffer when it fits (avoids a per-frame allocation in the
   // listening loop); otherwise allocate.
-  const result = out && out.length === count ? out : new Float32Array(count);
+  const result = out?.length === count ? out : new Float32Array(count);
   const n = data.length;
   if (count === 0 || n === 0) {
     result.fill(0);

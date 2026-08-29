@@ -19,9 +19,9 @@ interface PanelEntry {
 let nextPanelId = 1;
 
 export class TerminalManager {
-  private panels = new Map<string, PanelEntry>();
-  private termToPanel = new Map<string, string>();
-  private layer: HTMLElement;
+  private readonly panels = new Map<string, PanelEntry>();
+  private readonly termToPanel = new Map<string, string>();
+  private readonly layer: HTMLElement;
   private topZ = 10;
   private cascadeIndex = 0;
   private defaultCwd: (() => string | undefined) | undefined;
@@ -132,7 +132,7 @@ export class TerminalManager {
 }
 
 function shortenPath(p: string): string {
-  const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
+  const parts = p.replaceAll('\\', '/').split('/').filter(Boolean);
   if (parts.length <= 2) return parts.join('/');
   return '.../' + parts.slice(-2).join('/');
 }

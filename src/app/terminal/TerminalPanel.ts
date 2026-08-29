@@ -21,9 +21,9 @@ const RESIZE_DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
 
 export class TerminalPanel {
   readonly el: HTMLElement;
-  private tabList: HTMLElement;
-  private contentArea: HTMLElement;
-  private tabs = new Map<string, { tabEl: HTMLElement; bodyEl: HTMLElement }>();
+  private readonly tabList: HTMLElement;
+  private readonly contentArea: HTMLElement;
+  private readonly tabs = new Map<string, { tabEl: HTMLElement; bodyEl: HTMLElement }>();
   private activeTabId: string | null = null;
   private cleanup: (() => void) | null = null;
 
@@ -101,9 +101,9 @@ export class TerminalPanel {
     this.tabs.delete(id);
 
     if (this.activeTabId === id) {
-      const remaining = [...this.tabs.keys()];
-      if (remaining.length > 0) {
-        this.setActiveTab(remaining[remaining.length - 1]);
+      const last = [...this.tabs.keys()].at(-1);
+      if (last !== undefined) {
+        this.setActiveTab(last);
       } else {
         this.activeTabId = null;
         return false;

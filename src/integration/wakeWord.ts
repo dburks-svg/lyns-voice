@@ -26,7 +26,7 @@ export interface WakeResult {
   command: string;
 }
 
-const NAME = String.raw`oracle`;
+const NAME = 'oracle';
 
 // "hey"/"hay"/"heya"/"hi" + the name at a word boundary, then the rest verbatim.
 const GREETING_WAKE = new RegExp(

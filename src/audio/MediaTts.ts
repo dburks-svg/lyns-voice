@@ -122,7 +122,7 @@ export class MediaTts implements MediaTtsLike {
   unlock(): void {
     try {
       const ctx = this.ensureContext();
-      if (ctx && ctx.state === 'suspended') {
+      if (ctx?.state === 'suspended') {
         void ctx.resume();
       }
     } catch {
@@ -286,8 +286,8 @@ export class MediaTts implements MediaTtsLike {
       this.elapsedMs += this.pollIntervalMs;
       a.getByteTimeDomainData(bins);
       let sumSq = 0;
-      for (let i = 0; i < bins.length; i++) {
-        const v = (bins[i] - 128) / 128;
+      for (const bin of bins) {
+        const v = (bin - 128) / 128;
         sumSq += v * v;
       }
       const rms = Math.sqrt(sumSq / bins.length);

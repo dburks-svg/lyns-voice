@@ -36,8 +36,8 @@ export function computeLevel(data: Uint8Array): number {
     return 0;
   }
   let sum = 0;
-  for (let i = 0; i < data.length; i += 1) {
-    sum += data[i];
+  for (const v of data) {
+    sum += v;
   }
   return sum / data.length / 255;
 }
@@ -138,7 +138,7 @@ export class MicAnalyser {
       this.analyser.getByteFrequencyData(this.buffer);
       this.onLevel(computeLevel(this.buffer));
       if (this.onBands) {
-        if (!this.bandsBuffer || this.bandsBuffer.length !== this.bandCount) {
+        if (this.bandsBuffer?.length !== this.bandCount) {
           this.bandsBuffer = new Float32Array(this.bandCount);
         }
         this.onBands(computeBands(this.buffer, this.bandCount, this.bandsBuffer));
