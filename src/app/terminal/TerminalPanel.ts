@@ -25,9 +25,9 @@ export class TerminalPanel {
   private readonly contentArea: HTMLElement;
   private readonly tabs = new Map<string, { tabEl: HTMLElement; bodyEl: HTMLElement }>();
   private activeTabId: string | null = null;
-  private cleanup: (() => void) | null = null;
+  private readonly cleanup: (() => void) | null = null;
 
-  constructor(private opts: TerminalPanelOptions) {
+  constructor(private readonly opts: TerminalPanelOptions) {
     this.el = document.createElement('div');
     this.el.className = 'terminal-window';
     this.el.style.left = `${opts.x}px`;

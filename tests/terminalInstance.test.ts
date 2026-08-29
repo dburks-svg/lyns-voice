@@ -18,6 +18,6 @@ describe('base64ToBytes', () => {
   });
 
   it('returns an empty array for an empty payload', () => {
-    expect(base64ToBytes('').length).toBe(0);
+    expect(base64ToBytes('')).toHaveLength(0);
   });
 });

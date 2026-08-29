@@ -31,7 +31,8 @@ test('speak drives the speaking state when the engine fires events', async ({ pa
   });
 
   await page.goto('/demo/');
-  await page.waitForTimeout(1200);
+  // Demo boot is done when the controller writes its first state into #status.
+  await expect(page.locator('#status')).toContainText('idle');
   await page.click('#speak-test');
   await expect(page.locator('#status')).toContainText('speaking', { timeout: 2000 });
   await expect(page.locator('#status')).toContainText('idle', { timeout: 2000 });
@@ -57,7 +58,8 @@ test('rapid presses debounce into a single speak (no same-tick cancel storm)', a
   });
 
   await page.goto('/demo/');
-  await page.waitForTimeout(1200);
+  // Demo boot is done when the controller writes its first state into #status.
+  await expect(page.locator('#status')).toContainText('idle');
   // Click synchronously many times in one tick (the debounce window).
   await page.evaluate(() => {
     const b = document.getElementById('speak-test');
@@ -80,7 +82,8 @@ test('speak still animates via the visual fallback when the engine is silent', a
   });
 
   await page.goto('/demo/');
-  await page.waitForTimeout(1200);
+  // Demo boot is done when the controller writes its first state into #status.
+  await expect(page.locator('#status')).toContainText('idle');
   await page.click('#speak-test');
   // No engine events fire, so the demo's ~350ms fallback drives the animation.
   await expect(page.locator('#status')).toContainText('speaking', { timeout: 2000 });

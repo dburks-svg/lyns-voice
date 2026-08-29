@@ -14,7 +14,7 @@ describe('SessionPanel', () => {
     panel.addLine('narration', 'Reading the parser...');
     panel.addLine('action', 'Read src/a.ts');
     const lines = panel.el.querySelectorAll('.session-stream .s-line');
-    expect(lines.length).toBe(2);
+    expect(lines).toHaveLength(2);
     expect(lines[0].classList.contains('s-narration')).toBe(true);
     expect(lines[1].classList.contains('s-action')).toBe(true);
 

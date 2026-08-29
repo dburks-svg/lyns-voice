@@ -28,7 +28,7 @@ test('settings drawer toggles open and closed', async ({ page }) => {
 test('theme buttons switch the active class', async ({ page }) => {
   await page.goto('/');
   await page.click('#settings-btn');
-  await page.waitForTimeout(300);
+  await expect(page.locator('#settings-drawer')).not.toHaveAttribute('hidden', '');
 
   for (const theme of ['cyan', 'aurora', 'ember'] as const) {
     await page.click(`.theme-btn[data-theme="${theme}"]`);
@@ -40,12 +40,12 @@ test('theme buttons switch the active class', async ({ page }) => {
 test('theme choice persists across reload', async ({ page }) => {
   await page.goto('/');
   await page.click('#settings-btn');
-  await page.waitForTimeout(300);
+  await expect(page.locator('#settings-drawer')).not.toHaveAttribute('hidden', '');
   await page.click('.theme-btn[data-theme="ember"]');
 
   await page.reload();
   await page.click('#settings-btn');
-  await page.waitForTimeout(300);
+  await expect(page.locator('#settings-drawer')).not.toHaveAttribute('hidden', '');
   const active = page.locator('.theme-btn.active');
   await expect(active).toHaveAttribute('data-theme', 'ember');
 });
@@ -53,7 +53,7 @@ test('theme choice persists across reload', async ({ page }) => {
 test('TTS rate slider updates its displayed value', async ({ page }) => {
   await page.goto('/');
   await page.click('#settings-btn');
-  await page.waitForTimeout(300);
+  await expect(page.locator('#settings-drawer')).not.toHaveAttribute('hidden', '');
 
   const slider = page.locator('#set-rate');
   const val = page.locator('#set-rate-val');

@@ -220,7 +220,7 @@ describe('createWatchdog', () => {
       expect(onTimeout).toHaveBeenCalledTimes(1);
       const atTimeout = onTick.mock.calls.length;
       vi.advanceTimersByTime(2000);
-      expect(onTick.mock.calls.length).toBe(atTimeout); // pending tick was cancelled
+      expect(onTick.mock.calls).toHaveLength(atTimeout); // pending tick was cancelled
     } finally {
       vi.useRealTimers();
     }
