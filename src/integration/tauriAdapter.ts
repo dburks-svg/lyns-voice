@@ -308,8 +308,9 @@ export interface TauriAdapterOptions {
 export interface TauriHandle {
   avatar: AvatarLike;
   controller: AvatarController;
-  /** Speak a (possibly mood-tagged) line: tint by mood, caption it, synth + animate. */
-  speak(text: string): Promise<boolean>;
+  /** Speak a (possibly mood-tagged) line: tint by mood, caption it, synth + animate.
+   *  Resolves once the line is queued (playback continues asynchronously). */
+  speak(text: string): Promise<void>;
   /** Start mic capture + the Rust STT worker (call from a user gesture). */
   startListening(): Promise<boolean>;
   /** Stop mic capture + the STT worker. */
@@ -644,7 +645,7 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
   const speechChunkCap = (): number =>
     (options.ttsSettings?.().engine ?? 'kokoro') === 'sapi' ? 4500 : KOKORO_CHUNK_CHARS;
 
-  const speak = async (text: string): Promise<boolean> => {
+  const speak = async (text: string): Promise<void> => {
     // Mood is parsed and STRIPPED here, before the text is spoken or captioned,
     // so the `<<mood:...>>` marker is never heard or shown (the spec contract).
     const parsed = parseMoodMarker(text);
@@ -656,12 +657,11 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
     options.onTranscript?.('q', parsed.stripped); // HUD chat log
     const chunks = splitForSpeech(parsed.stripped, speechChunkCap());
     if (chunks.length === 0) {
-      return true;
+      return;
     }
     ttsNoticeFired = false; // re-arm the at-most-once voice-unavailable notice per reply
     speechQueue.push(...chunks);
     pumpSpeech();
-    return true;
   };
 
   // The conductor's single voice across the fleet: a worker session's finished turn is
