@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.0.0"
+version = "1.0.1"
 description = "LYNS Voice: a Tauri v2 desktop app that is the voice of Claude Code. You speak with Oracle."
 authors = ["Dana Burks"]
 license = "MIT"
