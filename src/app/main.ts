@@ -65,26 +65,7 @@ async function bootstrap(): Promise<void> {
     uptime: byId('hud-uptime'),
   });
   panels.startUptime();
-  // One light rAF drives the oscilloscope (~30fps) and the uptime ~1x/sec. It does
-  // no work while the window is hidden, and the 30fps cap (an SVG trace needs no
-  // more) keeps idle CPU low -- this loop runs for the whole session, so both the
-  // skip-when-hidden and the cap matter.
-  const WAVE_INTERVAL_MS = 1000 / 30;
-  let lastWave = 0;
-  let lastUptime = 0;
-  const tickPanels = (now: number): void => {
-    requestAnimationFrame(tickPanels);
-    if (document.hidden) return;
-    if (now - lastWave >= WAVE_INTERVAL_MS) {
-      lastWave = now;
-      panels.tickWave();
-    }
-    if (now - lastUptime >= 1000) {
-      lastUptime = now;
-      panels.tickUptime();
-    }
-  };
-  requestAnimationFrame(tickPanels);
+  startPanelTicker(panels);
 
   const settings = loadSettings();
 
@@ -797,40 +778,82 @@ async function bootstrap(): Promise<void> {
 
   // Right-click copy menu for transcript and diff panels.
   const transcriptEl = document.getElementById('hud-transcript');
-  if (transcriptEl) {
-    let copyMenu: HTMLElement | null = null;
-    const dismissCopyMenu = (): void => {
-      copyMenu?.remove();
-      copyMenu = null;
-    };
-    transcriptEl.addEventListener('contextmenu', (e) => {
-      const sel = window.getSelection()?.toString();
-      if (!sel) return;
-      e.preventDefault();
-      dismissCopyMenu();
-      const menu = document.createElement('div');
-      menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:999;
-        background:rgba(20,30,40,0.95);border:1px solid var(--accent-faint,#3af);
-        padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;color:#cfe9f5;`;
-      menu.textContent = 'Copy';
-      menu.addEventListener('click', () => {
-        void navigator.clipboard.writeText(sel);
-        dismissCopyMenu();
-      });
-      document.body.appendChild(menu);
-      copyMenu = menu;
-      document.addEventListener('pointerdown', (ev) => {
-        if (ev.target !== menu) dismissCopyMenu();
-      }, { once: true });
-      document.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Escape') dismissCopyMenu();
-      }, { once: true });
-    });
-  }
+  if (transcriptEl) wireCopyMenu(transcriptEl);
 
   if (label) {
     label.textContent = versionLabel;
   }
+}
+
+/** One light rAF drives the oscilloscope (~30fps) and the uptime ~1x/sec. It does
+ *  no work while the window is hidden, and the 30fps cap (an SVG trace needs no
+ *  more) keeps idle CPU low -- this loop runs for the whole session, so both the
+ *  skip-when-hidden and the cap matter. */
+function startPanelTicker(panels: TelemetryPanels): void {
+  const WAVE_INTERVAL_MS = 1000 / 30;
+  let lastWave = 0;
+  let lastUptime = 0;
+  const tickPanels = (now: number): void => {
+    requestAnimationFrame(tickPanels);
+    if (document.hidden) return;
+    if (now - lastWave >= WAVE_INTERVAL_MS) {
+      lastWave = now;
+      panels.tickWave();
+    }
+    if (now - lastUptime >= 1000) {
+      lastUptime = now;
+      panels.tickUptime();
+    }
+  };
+  requestAnimationFrame(tickPanels);
+}
+
+/** Right-click "Copy" menu over a selection inside `host`. */
+function wireCopyMenu(host: HTMLElement): void {
+  let copyMenu: HTMLElement | null = null;
+  const dismissCopyMenu = (): void => {
+    copyMenu?.remove();
+    copyMenu = null;
+  };
+  host.addEventListener('contextmenu', (e) => {
+    const sel = window.getSelection()?.toString();
+    if (!sel) return;
+    e.preventDefault();
+    dismissCopyMenu();
+    const menu = document.createElement('div');
+    menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:999;
+      background:rgba(20,30,40,0.95);border:1px solid var(--accent-faint,#3af);
+      padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;color:#cfe9f5;`;
+    menu.textContent = 'Copy';
+    menu.addEventListener('click', () => {
+      void navigator.clipboard.writeText(sel);
+      dismissCopyMenu();
+    });
+    document.body.appendChild(menu);
+    copyMenu = menu;
+    document.addEventListener('pointerdown', (ev) => {
+      if (ev.target !== menu) dismissCopyMenu();
+    }, { once: true });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') dismissCopyMenu();
+    }, { once: true });
+  });
+}
+
+/** One settings slider + its read-out: restore the saved value, then report input. */
+function wireSlider(
+  slider: HTMLInputElement | null,
+  valEl: HTMLElement | null,
+  initial: number,
+  fmt: (v: string) => string,
+  onInput: (v: number) => void,
+): void {
+  if (slider) slider.value = String(initial);
+  if (valEl) valEl.textContent = fmt(String(initial));
+  slider?.addEventListener('input', () => {
+    if (valEl) valEl.textContent = fmt(slider.value);
+    onInput(Number(slider.value));
+  });
 }
 
 function wireSettings(
@@ -851,32 +874,18 @@ function wireSettings(
   const voiceSelect = document.getElementById('set-voice') as HTMLSelectElement | null;
   const micSelect = document.getElementById('set-mic') as HTMLSelectElement | null;
 
-  // Restore saved values into the controls
-  if (rateSlider) { rateSlider.value = String(settings.ttsRate); }
-  if (rateVal) { rateVal.textContent = String(settings.ttsRate); }
-  if (pitchSlider) { pitchSlider.value = String(settings.ttsPitch); }
-  if (pitchVal) { pitchVal.textContent = String(settings.ttsPitch); }
-  if (vadSlider) { vadSlider.value = String(settings.vadMs); }
-  if (vadVal) { vadVal.textContent = `${settings.vadMs}ms`; }
-
-  // Rate slider
-  rateSlider?.addEventListener('input', () => {
-    settings.ttsRate = Number(rateSlider.value);
-    if (rateVal) rateVal.textContent = rateSlider.value;
+  // Each slider restores its saved value into the control + read-out, then
+  // persists (and applies) changes on input.
+  wireSlider(rateSlider, rateVal, settings.ttsRate, (v) => v, (v) => {
+    settings.ttsRate = v;
     saveSettings(settings);
   });
-
-  // Pitch slider
-  pitchSlider?.addEventListener('input', () => {
-    settings.ttsPitch = Number(pitchSlider.value);
-    if (pitchVal) pitchVal.textContent = pitchSlider.value;
+  wireSlider(pitchSlider, pitchVal, settings.ttsPitch, (v) => v, (v) => {
+    settings.ttsPitch = v;
     saveSettings(settings);
   });
-
-  // VAD sensitivity slider
-  vadSlider?.addEventListener('input', () => {
-    settings.vadMs = Number(vadSlider.value);
-    if (vadVal) vadVal.textContent = `${vadSlider.value}ms`;
+  wireSlider(vadSlider, vadVal, settings.vadMs, (v) => `${v}ms`, (v) => {
+    settings.vadMs = v;
     saveSettings(settings);
     invoke?.('stt_set_vad_hangover', { ms: settings.vadMs }).catch(() => {});
   });

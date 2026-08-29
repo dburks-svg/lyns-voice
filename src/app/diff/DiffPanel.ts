@@ -19,6 +19,33 @@ export interface DiffPanelOptions {
 
 const RESIZE_DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
 
+/** The +/- line block for one diff entry, or null when the entry carries no text. */
+function buildDiffBlock(entry: DiffEntry): HTMLElement | null {
+  if (entry.tool === 'Write' && entry.content) {
+    const block = document.createElement('pre');
+    block.className = 'diff-block';
+    appendDiffLines(block, entry.content, 'diff-add', '+');
+    return block;
+  }
+  if (entry.oldString != null || entry.newString != null) {
+    const block = document.createElement('pre');
+    block.className = 'diff-block';
+    if (entry.oldString) appendDiffLines(block, entry.oldString, 'diff-del', '-');
+    if (entry.newString) appendDiffLines(block, entry.newString, 'diff-add', '+');
+    return block;
+  }
+  return null;
+}
+
+function appendDiffLines(block: HTMLElement, text: string, cls: string, prefix: string): void {
+  for (const line of text.split('\n')) {
+    const row = document.createElement('div');
+    row.className = `diff-line ${cls}`;
+    row.textContent = `${prefix} ${line}`;
+    block.appendChild(row);
+  }
+}
+
 export class DiffPanel {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
@@ -72,37 +99,8 @@ export class DiffPanel {
     header.textContent = `${entry.tool} ${entry.filePath}`;
     section.appendChild(header);
 
-    if (entry.tool === 'Write' && entry.content) {
-      const block = document.createElement('pre');
-      block.className = 'diff-block';
-      for (const line of entry.content.split('\n')) {
-        const row = document.createElement('div');
-        row.className = 'diff-line diff-add';
-        row.textContent = `+ ${line}`;
-        block.appendChild(row);
-      }
-      section.appendChild(block);
-    } else if (entry.oldString != null || entry.newString != null) {
-      const block = document.createElement('pre');
-      block.className = 'diff-block';
-      if (entry.oldString) {
-        for (const line of entry.oldString.split('\n')) {
-          const row = document.createElement('div');
-          row.className = 'diff-line diff-del';
-          row.textContent = `- ${line}`;
-          block.appendChild(row);
-        }
-      }
-      if (entry.newString) {
-        for (const line of entry.newString.split('\n')) {
-          const row = document.createElement('div');
-          row.className = 'diff-line diff-add';
-          row.textContent = `+ ${line}`;
-          block.appendChild(row);
-        }
-      }
-      section.appendChild(block);
-    }
+    const block = buildDiffBlock(entry);
+    if (block) section.appendChild(block);
 
     this.body.appendChild(section);
     this.body.scrollTop = this.body.scrollHeight;

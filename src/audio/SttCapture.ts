@@ -88,29 +88,33 @@ export class SttCapture {
     return this.starting;
   }
 
-  private async startInner(): Promise<boolean> {
-    const token = ++this.startToken;
+  /** Acquire the mic stream, or null on permission denial / no device. */
+  private async acquireStream(): Promise<MediaStream | null> {
     const getUserMedia =
       this.opts.getUserMedia ??
       ((c: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(c));
-
-    let stream: MediaStream;
-    try {
-      const audioConstraints: MediaTrackConstraints = {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
-      if (this.opts.deviceId) {
-        audioConstraints.deviceId = { exact: this.opts.deviceId };
-      }
-      stream = await getUserMedia({ audio: audioConstraints, video: false });
-    } catch {
-      return false; // permission denied / no device
+    const audioConstraints: MediaTrackConstraints = {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    if (this.opts.deviceId) {
+      audioConstraints.deviceId = { exact: this.opts.deviceId };
     }
+    try {
+      return await getUserMedia({ audio: audioConstraints, video: false });
+    } catch {
+      return null; // permission denied / no device
+    }
+  }
+
+  private async startInner(): Promise<boolean> {
+    const token = ++this.startToken;
+    const stream = await this.acquireStream();
+    if (!stream) return false;
     if (token !== this.startToken) {
-      for (const t of stream.getTracks()) t.stop(); // stop() landed during await
+      stopTracks(stream); // stop() landed during await
       return false;
     }
 
@@ -125,13 +129,11 @@ export class SttCapture {
     try {
       await ctx.audioWorklet.addModule(WORKLET_URL);
     } catch {
-      for (const t of stream.getTracks()) t.stop();
-      if (ctx.state !== 'closed') void ctx.close();
+      discardCapture(stream, ctx);
       return false;
     }
     if (token !== this.startToken) {
-      for (const t of stream.getTracks()) t.stop();
-      if (ctx.state !== 'closed') void ctx.close();
+      discardCapture(stream, ctx);
       return false;
     }
 
@@ -215,4 +217,14 @@ export class SttCapture {
     this.ctx = null;
     this.opts.onLevel?.(0);
   }
+}
+
+function stopTracks(stream: MediaStream): void {
+  for (const t of stream.getTracks()) t.stop();
+}
+
+/** Abandon a half-built capture: release the mic and close its context. */
+function discardCapture(stream: MediaStream, ctx: AudioContext): void {
+  stopTracks(stream);
+  if (ctx.state !== 'closed') void ctx.close();
 }

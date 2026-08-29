@@ -12,8 +12,10 @@
  */
 
 export interface ConductorVoice {
-  /** A worker session finished a turn (`isError` => critical). */
-  announce(name: string, isError: boolean): void;
+  /** A worker session hit an error: critical, spoken at the next free moment. */
+  announceError(name: string): void;
+  /** A worker session finished cleanly: batched into the debounced digest line. */
+  announceDone(name: string): void;
   /** Speak a queued announcement now if one is pending; call when the voice frees. */
   flush(): void;
 }
@@ -63,19 +65,19 @@ export function createConductorVoice(deps: ConductorVoiceDeps): ConductorVoice {
     }
   }
 
-  function announce(name: string, isError: boolean): void {
-    if (isError) {
-      critical.push(name);
-      flush(); // criticals try immediately (still gated on voiceFree)
-    } else {
-      digest.push(name);
-      if (digestTimer !== null) deps.timer.clearTimeout(digestTimer);
-      digestTimer = deps.timer.setTimeout(() => {
-        digestTimer = null;
-        flush();
-      }, digestMs);
-    }
+  function announceError(name: string): void {
+    critical.push(name);
+    flush(); // criticals try immediately (still gated on voiceFree)
   }
 
-  return { announce, flush };
+  function announceDone(name: string): void {
+    digest.push(name);
+    if (digestTimer !== null) deps.timer.clearTimeout(digestTimer);
+    digestTimer = deps.timer.setTimeout(() => {
+      digestTimer = null;
+      flush();
+    }, digestMs);
+  }
+
+  return { announceError, announceDone, flush };
 }

@@ -35,7 +35,7 @@ describe('joinNames / line builders', () => {
 describe('createConductorVoice', () => {
   it('announces a worker error immediately when the voice is free', () => {
     const { cv, spoken } = harness(true);
-    cv.announce('Session C', true);
+    cv.announceError('Session C');
     expect(spoken).toHaveLength(1);
     expect(spoken[0]).toContain('Session C');
     expect(spoken[0]).toContain('hit an error');
@@ -43,7 +43,7 @@ describe('createConductorVoice', () => {
 
   it('holds an error while the voice is busy, then speaks it on flush', () => {
     const { cv, spoken, setFree } = harness(false);
-    cv.announce('Session C', true);
+    cv.announceError('Session C');
     expect(spoken).toHaveLength(0); // voice busy
     setFree(true);
     cv.flush();
@@ -54,8 +54,8 @@ describe('createConductorVoice', () => {
     vi.useFakeTimers();
     try {
       const { cv, spoken } = harness(true);
-      cv.announce('Session A', false);
-      cv.announce('Session B', false);
+      cv.announceDone('Session A');
+      cv.announceDone('Session B');
       expect(spoken).toHaveLength(0); // still debouncing
       vi.advanceTimersByTime(1000);
       expect(spoken).toHaveLength(1);
@@ -68,8 +68,8 @@ describe('createConductorVoice', () => {
 
   it('flushes a critical before a pending digest', () => {
     const { cv, spoken, setFree } = harness(false);
-    cv.announce('Session A', false); // digest (voice busy)
-    cv.announce('Session C', true); // critical (voice busy)
+    cv.announceDone('Session A'); // digest (voice busy)
+    cv.announceError('Session C'); // critical (voice busy)
     setFree(true);
     cv.flush();
     expect(spoken[0]).toContain('Session C'); // critical first

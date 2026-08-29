@@ -102,8 +102,6 @@ export class TerminalInstance {
       void this.tauri.invoke('terminal_write', { id: this.id, data }).catch(() => undefined);
     });
 
-    void this.wireEvents();
-
     this.resizeObserver = new ResizeObserver(() => {
       if (this.destroyed) return;
       this.fitAddon.fit();
@@ -116,6 +114,12 @@ export class TerminalInstance {
     void this.tauri
       .invoke('terminal_resize', { id: this.id, cols: this.term.cols, rows: this.term.rows })
       .catch(() => undefined);
+  }
+
+  /** Subscribe to the PTY's Tauri events. Call once right after construction;
+   *  kept out of the constructor so construction has no async side effects. */
+  connect(): void {
+    void this.wireEvents();
   }
 
   private async wireEvents(): Promise<void> {

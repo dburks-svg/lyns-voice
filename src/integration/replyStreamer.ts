@@ -42,8 +42,24 @@ export interface ReplyStreamer {
   reset(): void;
 }
 
-// A complete marker: `<<...>>` (non-greedy to the first `>>`). Bodies never contain `>>`.
-const COMPLETE_MARKER = /<<[\s\S]*?>>/g;
+// A complete marker runs from a `<<` to the first `>>` after it (bodies never
+// contain `>>`). Scanned by indexOf, not a lazy regex: `<<` floods made the old
+// /<<[\s\S]*?>>/g re-scan to the end of the buffer from every `<<`, going quadratic.
+function extractMarkers(s: string): { markers: string[]; stripped: string } {
+  const markers: string[] = [];
+  let out = '';
+  let pos = 0;
+  for (;;) {
+    const open = s.indexOf('<<', pos);
+    if (open === -1) break;
+    const close = s.indexOf('>>', open + 2);
+    if (close === -1) break;
+    markers.push(s.slice(open, close + 2));
+    out += s.slice(pos, open);
+    pos = close + 2;
+  }
+  return { markers, stripped: out + s.slice(pos) };
+}
 // The longest an unmatched `<<` may hold the stream. Real marker bodies are bounded
 // (mood names are short; the conductor grammar caps bodies at 512 chars), so once
 // this much text follows a `<<` with no `>>` it is prose (`operator <<`, a heredoc),
@@ -69,20 +85,29 @@ const WS = /\s/;
  * adversarial terminator floods.
  */
 function findBoundary(s: string, from: number): { end: number; rest: number } | null {
-  for (let i = from; i < s.length; i++) {
-    if (!TERMINATORS.includes(s[i])) continue;
-    let j = i + 1;
-    while (j < s.length && TERMINATORS.includes(s[j])) j++;
-    let k = j;
-    while (k < s.length && CLOSERS.includes(s[k])) k++;
+  let i = from;
+  while (i < s.length) {
+    if (!TERMINATORS.includes(s[i])) {
+      i += 1;
+      continue;
+    }
+    const k = runEnd(s, i);
     if (k < s.length && WS.test(s[k])) {
       let m = k + 1;
       while (m < s.length && WS.test(s[m])) m++;
       return { end: k, rest: m };
     }
-    i = k - 1; // no whitespace after the run (e.g. `3.14`): resume right past it
+    i = k; // no whitespace after the run (e.g. `3.14`): resume right past it
   }
   return null;
+}
+
+/** Exclusive end of the terminator-then-closer run starting at `i` (a terminator). */
+function runEnd(s: string, i: number): number {
+  let j = i + 1;
+  while (j < s.length && TERMINATORS.includes(s[j])) j++;
+  while (j < s.length && CLOSERS.includes(s[j])) j++;
+  return j;
 }
 
 /** Index of a trailing unmatched `<<` in `s` (no `>>` anywhere after it), or -1. */
@@ -150,13 +175,30 @@ export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
   function emit(sentence: string): void {
     // A mood marker embedded in this sentence (a mid-sentence shift) recolors the orb
     // before every marker is stripped from the spoken text.
-    const markers = sentence.match(COMPLETE_MARKER);
-    if (markers) for (const mk of markers) applyMood(mk);
-    const clean = sentence.replace(COMPLETE_MARKER, '').trim();
+    const { markers, stripped } = extractMarkers(sentence);
+    for (const mk of markers) applyMood(mk);
+    const clean = stripped.trim();
     if (clean) {
       didSpeak = true;
       opts.onChunk(clean);
     }
+  }
+
+  // A leading `<<` with no `>>` yet holds the stream until it completes, unless the
+  // "marker" has outgrown any legal body; then it is prose and must flow on.
+  function holdForMarker(): boolean {
+    const open = unclosedOpen(buf);
+    return open === -1 || buf.length - open <= MARKER_HOLD_MAX;
+  }
+
+  // Bound the buffer so a boundary-less flood cannot grow (and re-scan) it forever;
+  // a genuinely-held partial marker stays buffered.
+  function capBuffer(): void {
+    if (buf.length <= BUF_MAX) return;
+    const open = unclosedOpen(buf);
+    const cut = open !== -1 && buf.length - open <= MARKER_HOLD_MAX ? open : buf.length;
+    emit(buf.slice(0, cut));
+    buf = buf.slice(cut);
   }
 
   return {
@@ -164,22 +206,10 @@ export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
       if (!delta) return;
       buf += delta;
       for (;;) {
-        if (stripLeading() === 'wait') {
-          // A leading `<<` with no `>>` yet: hold for it to complete, unless it has
-          // outgrown any legal marker body; then it is prose and flows on below.
-          const open = unclosedOpen(buf);
-          if (open === -1 || buf.length - open <= MARKER_HOLD_MAX) return;
-        }
+        if (stripLeading() === 'wait' && holdForMarker()) return;
         const b = emittableBoundary(buf);
         if (!b) {
-          // Nothing emittable. Bound the buffer so a boundary-less flood cannot grow
-          // (and re-scan) it forever; a genuinely-held partial marker stays buffered.
-          if (buf.length > BUF_MAX) {
-            const open = unclosedOpen(buf);
-            const cut = open !== -1 && buf.length - open <= MARKER_HOLD_MAX ? open : buf.length;
-            emit(buf.slice(0, cut));
-            buf = buf.slice(cut);
-          }
+          capBuffer(); // nothing emittable; keep the boundary-less buffer bounded
           return;
         }
         const candidate = buf.slice(0, b.end);
@@ -192,9 +222,9 @@ export function createReplyStreamer(opts: ReplyStreamerOptions): ReplyStreamer {
       stripLeading(); // apply a leading/trailing mood marker + strip leading markers
       // A mood marker buffered in a terminator-less tail (no sentence boundary to
       // emit it through) still recolors the orb before it is stripped below.
-      const markers = buf.match(COMPLETE_MARKER);
-      if (markers) for (const mk of markers) applyMood(mk);
-      let rest = buf.replace(COMPLETE_MARKER, '');
+      const { markers, stripped } = extractMarkers(buf);
+      for (const mk of markers) applyMood(mk);
+      let rest = stripped;
       // Drop a dangling truncated marker (`<<tel`, `<<spawn:...`) so half a marker is
       // never spoken; a dangling prose `<<` (C++ operators) is kept, not swallowed.
       const open = unclosedOpen(rest);

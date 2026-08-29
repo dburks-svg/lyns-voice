@@ -205,4 +205,17 @@ describe('createReplyStreamer', () => {
     expect(chunks.length).toBeGreaterThan(0); // the buffer cap force-emitted
     expect(chunks.join(' ')).toContain('The end.');
   });
+  it('treats a << flood as prose and scans it in linear time', () => {
+    const { s, chunks } = collect();
+    // Unmatched << runs used to make the lazy marker regex re-scan to the end of
+    // the buffer from every open, going quadratic. They are prose, not markers.
+    const flood = '<< '.repeat(400) + 'over. ';
+    const t0 = performance.now();
+    s.push(flood);
+    s.flush();
+    expect(performance.now() - t0).toBeLessThan(1000);
+    const all = chunks.join(' ');
+    expect(all).toContain('over.');
+    expect(all).toContain('<<'); // prose << is kept, never swallowed as a marker
+  });
 });
