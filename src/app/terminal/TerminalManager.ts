@@ -24,11 +24,11 @@ export class TerminalManager {
   private readonly layer: HTMLElement;
   private topZ = 10;
   private cascadeIndex = 0;
-  private defaultCwd: (() => string | undefined) | undefined;
+  private readonly defaultCwd: (() => string | undefined) | undefined;
 
   constructor(
     layerEl: HTMLElement,
-    private tauri: TauriApi,
+    private readonly tauri: TauriApi,
     cwdFn?: () => string | undefined,
   ) {
     this.layer = layerEl;

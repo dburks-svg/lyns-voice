@@ -12,10 +12,10 @@ test('clicking "+ terminal" spawns a terminal panel', async ({ page }) => {
     terminal_spawn: () => 'term-1',
   });
   await page.goto('/');
-  await page.waitForTimeout(500);
+  // Bootstrap is done when the version label lands in #status (wired last).
+  await expect(page.locator('#status')).toContainText('LYNS Voice v');
 
   await page.click('#terminal-btn');
-  await page.waitForTimeout(300);
 
   const panel = page.locator('#terminal-layer .terminal-window');
   await expect(panel.first()).toBeVisible({ timeout: 3000 });
@@ -30,7 +30,7 @@ test('terminal panel has a tab bar for drag', async ({ page }) => {
     terminal_spawn: () => 'term-1',
   });
   await page.goto('/');
-  await page.waitForTimeout(500);
+  await expect(page.locator('#status')).toContainText('LYNS Voice v');
 
   await page.click('#terminal-btn');
   const tabBar = page.locator('#terminal-layer .terminal-window .terminal-tabs');

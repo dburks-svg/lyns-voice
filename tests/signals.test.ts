@@ -21,7 +21,7 @@ describe('safeSetText', () => {
     safeSetText(element, '<img src=x onerror=alert(1)>');
     expect(element.textContent).toBe('<img src=x onerror=alert(1)>');
     expect(element.querySelector('img')).toBeNull();
-    expect(element.children.length).toBe(0);
+    expect(element.children).toHaveLength(0);
   });
 
   it('is a no-op for a null element', () => {

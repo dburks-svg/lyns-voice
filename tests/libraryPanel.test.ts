@@ -42,7 +42,7 @@ describe('LibraryPanel', () => {
   it('renders one checked row per registered MCP server', () => {
     const { panel } = mount();
     const rows = panel.el.querySelectorAll('.library-row');
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     const names = [...panel.el.querySelectorAll('.library-name')].map((n) => n.textContent);
     expect(names).toEqual(['wisdom', 'github']);
     for (const box of panel.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) {
@@ -78,7 +78,7 @@ describe('LibraryPanel', () => {
       disabledHooks: new Set(['bbb']),
     });
     const rows = panel.el.querySelectorAll('.library-hook-rows .library-row');
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain('PreToolUse [Bash] lint.cmd (user)');
     expect(rows[1].textContent).toContain('SessionStart hello.cmd (project)');
     const boxes = panel.el.querySelectorAll<HTMLInputElement>(

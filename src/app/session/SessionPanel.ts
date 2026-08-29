@@ -32,7 +32,7 @@ export class SessionPanel {
   readonly el: HTMLElement;
   private readonly streamBody: HTMLElement;
   private readonly input: HTMLTextAreaElement;
-  private cleanup: (() => void) | null = null;
+  private readonly cleanup: (() => void) | null = null;
 
   constructor(opts: SessionPanelOptions) {
     this.el = document.createElement('div');

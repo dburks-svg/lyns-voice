@@ -29,7 +29,7 @@ const MARKER = /<<\s*mood\s*:([^>]{0,64})>>/gi;
 const KEYWORD = /^\s*([a-z0-9_-]{1,24})\s*$/i;
 
 export function parseMoodMarker(text: string): ParsedMood {
-  if (!text || !text.includes('<<')) {
+  if (!text?.includes('<<')) {
     return { mood: null, stripped: text };
   }
   let mood: Mood | null = null;

@@ -22,7 +22,7 @@ const RESIZE_DIRS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const;
 export class DiffPanel {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
-  private cleanup: (() => void) | null = null;
+  private readonly cleanup: (() => void) | null = null;
 
   constructor(opts: DiffPanelOptions) {
     this.el = document.createElement('div');

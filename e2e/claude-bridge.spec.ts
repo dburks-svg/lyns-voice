@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   installTauriMock,
   emitTauriEvent,
@@ -10,6 +10,22 @@ import {
  * flow and verifies that turn-end events surface in the caption (mood-stripped).
  */
 
+/** Open the settings drawer and wait for the observable open state (the drawer
+ *  animates via CSS, so the un-hidden attribute is the ready signal). */
+async function openSettings(page: Page): Promise<void> {
+  await page.click('#settings-btn');
+  await expect(page.locator('#settings-drawer')).not.toHaveAttribute('hidden', '');
+}
+
+/** Connect to a project dir and wait until the mock actually received claude_start. */
+async function connectClaude(page: Page, dir: string): Promise<void> {
+  await page.locator('#claude-dir').fill(dir);
+  await page.click('#claude-btn');
+  await expect
+    .poll(async () => (await getInvokeCalls(page)).map((c) => c.cmd))
+    .toContain('claude_start');
+}
+
 test('connect button calls claude_start and updates UI', async ({ page }) => {
   await installTauriMock(page, {
     claude_start: () => null,
@@ -17,15 +33,8 @@ test('connect button calls claude_start and updates UI', async ({ page }) => {
   });
 
   await page.goto('/');
-  await page.click('#settings-btn');
-  await page.waitForTimeout(300);
-
-  const dirInput = page.locator('#claude-dir');
-  await dirInput.fill('/test/project');
-
-  const connectBtn = page.locator('#claude-btn');
-  await connectBtn.click();
-  await page.waitForTimeout(800);
+  await openSettings(page);
+  await connectClaude(page, '/test/project');
 
   const calls = await getInvokeCalls(page);
   const startCall = calls.find((c) => c.cmd === 'claude_start');
@@ -42,19 +51,13 @@ test('claude://ready event updates the caption', async ({ page }) => {
   });
 
   await page.goto('/');
-  await page.click('#settings-btn');
-  await page.waitForTimeout(300);
-
-  const dirInput = page.locator('#claude-dir');
-  await dirInput.fill('/test/project');
-  await page.click('#claude-btn');
-  await page.waitForTimeout(800);
+  await openSettings(page);
+  await connectClaude(page, '/test/project');
 
   await emitTauriEvent(page, 'claude://claude-1/ready', {
     active: true,
     cwd: '/test/project',
   });
-  await page.waitForTimeout(200);
 
   const caption = page.locator('#caption');
   await expect(caption).toContainText('Claude connected');
@@ -83,22 +86,15 @@ test('claude://turn-end with mood tag strips the marker from caption', async ({
   });
 
   await page.goto('/');
-  await page.click('#settings-btn');
-  await page.waitForTimeout(300);
-
-  const dirInput = page.locator('#claude-dir');
-  await dirInput.fill('/test/project');
-  await page.click('#claude-btn');
-  await page.waitForTimeout(800);
+  await openSettings(page);
+  await connectClaude(page, '/test/project');
 
   await emitTauriEvent(page, 'claude://claude-1/turn-end', {
     text: '<<mood:happy>>Hello from Claude!',
     is_error: false,
   });
-  await page.waitForTimeout(500);
 
   const caption = page.locator('#caption');
-  const text = await caption.textContent();
-  expect(text).toContain('Hello from Claude!');
-  expect(text).not.toContain('<<mood');
+  await expect(caption).toContainText('Hello from Claude!');
+  await expect(caption).not.toContainText('<<mood');
 });

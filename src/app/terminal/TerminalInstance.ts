@@ -34,13 +34,13 @@ export class TerminalInstance {
   readonly term: Terminal;
   private readonly fitAddon: FitAddon;
   private readonly unlisteners: UnlistenFn[] = [];
-  private resizeObserver: ResizeObserver | null = null;
+  private readonly resizeObserver: ResizeObserver | null = null;
   private destroyed = false;
 
   constructor(
     readonly id: string,
     container: HTMLElement,
-    private tauri: TauriApi,
+    private readonly tauri: TauriApi,
   ) {
     this.term = new Terminal({
       fontFamily: '"Cascadia Code", "Cascadia Mono", Consolas, monospace',
