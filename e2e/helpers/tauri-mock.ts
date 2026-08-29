@@ -97,6 +97,9 @@ export async function installTauriMock(
 
     (window as unknown as Record<string, unknown>).__TAURI_TEST__ = {
       invokeCalls,
+      hasListener(event: string) {
+        return (eventListeners[event] ?? []).length > 0;
+      },
       emit(event: string, payload: unknown) {
         for (const cbId of eventListeners[event] ?? []) {
           callbacks[cbId]?.({ event, id: cbId, payload });
@@ -109,12 +112,25 @@ export async function installTauriMock(
 /**
  * Fire a synthetic Tauri event from the test side.
  * The app's registered `listen` handlers for that event will be called.
+ *
+ * Waits until the app has registered a listener for the event before
+ * emitting: the app subscribes asynchronously (after the triggering invoke
+ * resolves), so emitting immediately can fire into nothing on a slow runner
+ * and the event is lost.
  */
 export async function emitTauriEvent(
   page: Page,
   event: string,
   payload: unknown,
 ): Promise<void> {
+  await page.waitForFunction(
+    (e: string) => {
+      const test = (window as unknown as Record<string, unknown>)
+        .__TAURI_TEST__ as { hasListener: (event: string) => boolean };
+      return test.hasListener(e);
+    },
+    event,
+  );
   await page.evaluate(
     ({ event: e, payload: p }) => {
       const test = (window as unknown as Record<string, unknown>)
