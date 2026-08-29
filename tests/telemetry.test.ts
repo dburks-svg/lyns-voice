@@ -17,6 +17,11 @@ describe('telemetry formatters', () => {
     expect(formatTokens(12345)).toBe('12.3k');
     expect(formatTokens(100000)).toBe('100k');
     expect(formatTokens(3_400_000)).toBe('3.4M');
+    // Trailing decimal zeros are trimmed (pins the hand-rolled trimZero rewrite).
+    expect(formatTokens(1000)).toBe('1k');
+    expect(formatTokens(2_000_000)).toBe('2M');
+    expect(formatTokens(1_230_000)).toBe('1.23M');
+    expect(formatTokens(1_200_000)).toBe('1.2M');
   });
 
   it('formatCost shows sub-cent precision under $1', () => {

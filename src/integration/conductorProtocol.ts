@@ -55,8 +55,13 @@ export function parseConductor(text: string): ParsedConductor {
  * webview with no real path API, so conservative refusal is the safe answer.
  */
 export function isWithinDir(child: string, root: string): boolean {
-  const norm = (p: string): string =>
-    p.trim().replace(/\//g, '\\').replace(/\\+/g, '\\').replace(/\\+$/, '').toLowerCase();
+  const norm = (p: string): string => {
+    // One linear pass collapses separator runs; the old chained replaces ended in
+    // an anchored /\\+$/ that backtracked super-linearly on backslash floods.
+    let s = p.trim().replaceAll(/[\\/]+/g, '\\').toLowerCase();
+    if (s.endsWith('\\')) s = s.slice(0, -1);
+    return s;
+  };
   const c = norm(child);
   const r = norm(root);
   if (!c || !r) return false;

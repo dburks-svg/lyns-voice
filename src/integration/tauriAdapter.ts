@@ -850,6 +850,49 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       }
     }, TRANSCRIBE_FAILSAFE_MS);
   });
+  // Wake gating: with wake mode on and Q not already armed, an utterance must start
+  // with the wake phrase to be heard. "Oracle, <command>" runs in one breath; a bare wake
+  // arms Oracle (and chirps "Yes?") so the next utterance is taken as the command.
+  // Returns the command to act on, or null when the utterance was consumed here.
+  const gateWake = (text: string): string | null => {
+    if (!options.wakeWordEnabled?.() || wakeArmed) return text;
+    const wake = matchWake(text);
+    if (!wake.woke) {
+      return null; // ambient speech without the wake phrase; ignore it
+    }
+    if (!wake.command) {
+      armWake();
+      safeSetText(options.caption ?? null, 'Yes?');
+      return null;
+    }
+    return wake.command;
+  };
+
+  // Submit a voice command to the live session, honoring voice barge-in (opt-in):
+  // if Q is mid-reply (speaking) or still generating (thinking), cut that turn off
+  // before taking the floor.
+  const submitVoiceCommand = (command: string): void => {
+    if (options.bargeIn?.() && (signals.speaking || signals.pendingResponse || turnOpen)) {
+      if (turnOpen || signals.pendingResponse) {
+        // Still generating: abandon the turn (kill + relaunch on the Rust side) and
+        // submit only after the relaunched session is registered. Submitting
+        // immediately raced the relaunch window (the session is briefly absent from
+        // the map) and the interrupting command was silently dropped.
+        void cancelClaude().then(() => submitToClaude(command));
+      } else {
+        // The turn already completed; Q is only reading it out. Stop playback but
+        // keep the session (and its conversation context) alive.
+        clearSpeechQueue();
+        mediaTts.stop();
+        signals.speaking = false;
+        sync();
+        submitToClaude(command);
+      }
+      return;
+    }
+    submitToClaude(command);
+  };
+
   addListener<{ text: string }>('stt://final', (p) => {
     decodesInFlight = Math.max(0, decodesInFlight - 1);
     const text = (p.text ?? '').trim();
@@ -864,45 +907,11 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       return;
     }
     clearTranscribeCaption(); // the real transcript replaces the acknowledgment below
-    // Wake gating: with wake mode on and Q not already armed, an utterance must start
-    // with the wake phrase to be heard. "Oracle, <command>" runs in one breath; a bare wake
-    // arms Oracle (and chirps "Yes?") so the next utterance is taken as the command.
-    let command = text;
-    if (options.wakeWordEnabled?.() && !wakeArmed) {
-      const wake = matchWake(text);
-      if (!wake.woke) {
-        return; // ambient speech without the wake phrase; ignore it
-      }
-      if (!wake.command) {
-        armWake();
-        safeSetText(options.caption ?? null, 'Yes?');
-        return;
-      }
-      command = wake.command;
-    }
+    const command = gateWake(text);
+    if (command === null) return;
     disarmWake();
     if (claudeConnected) {
-      // Voice barge-in (opt-in): if Q is mid-reply (speaking) or still generating
-      // (thinking), cut that turn off before taking the floor.
-      if (options.bargeIn?.() && (signals.speaking || signals.pendingResponse || turnOpen)) {
-        if (turnOpen || signals.pendingResponse) {
-          // Still generating: abandon the turn (kill + relaunch on the Rust side) and
-          // submit only after the relaunched session is registered. Submitting
-          // immediately raced the relaunch window (the session is briefly absent from
-          // the map) and the interrupting command was silently dropped.
-          void cancelClaude().then(() => submitToClaude(command));
-        } else {
-          // The turn already completed; Q is only reading it out. Stop playback but
-          // keep the session (and its conversation context) alive.
-          clearSpeechQueue();
-          mediaTts.stop();
-          signals.speaking = false;
-          sync();
-          submitToClaude(command);
-        }
-        return;
-      }
-      submitToClaude(command);
+      submitVoiceCommand(command);
     } else {
       safeSetText(options.caption ?? null, command);
       options.onTranscript?.('user', command); // HUD chat log
@@ -1328,7 +1337,8 @@ export function attachTauri(options: TauriAdapterOptions): TauriHandle {
       if (t && claudeConnected) submitToClaude(t);
     },
     interrupt,
-    announce: (name, isError) => conductorVoice.announce(name, isError),
+    announce: (name, isError) =>
+      isError ? conductorVoice.announceError(name) : conductorVoice.announceDone(name),
     isClaudeConnected: () => claudeConnected,
     cancelReconnect,
     setState: (state) => controller.setState(state),

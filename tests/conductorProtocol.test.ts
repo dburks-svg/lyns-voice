@@ -74,6 +74,14 @@ describe('isWithinDir', () => {
     expect(isWithinDir('C:\\proj', 'D:\\proj')).toBe(false);
   });
 
+  it('collapses separator runs and normalizes a separator flood in linear time', () => {
+    expect(isWithinDir('D:\\\\proj\\\\\\web', 'D://proj')).toBe(true);
+    const flood = 'D:\\proj' + '\\'.repeat(20_000);
+    const t0 = performance.now();
+    expect(isWithinDir(flood, 'D:\\proj')).toBe(true);
+    expect(performance.now() - t0).toBeLessThan(1000);
+  });
+
   it('rejects .. traversal and empty inputs outright', () => {
     expect(isWithinDir('D:\\proj\\..\\secrets', 'D:\\proj')).toBe(false);
     expect(isWithinDir('D:\\proj\\web\\..', 'D:\\proj')).toBe(false);

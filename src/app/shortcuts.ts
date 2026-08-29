@@ -19,50 +19,36 @@ function isTextFocused(): boolean {
   return false;
 }
 
+/** The action a keydown maps to, or undefined for a key we do not own. */
+function pickAction(e: KeyboardEvent, actions: ShortcutActions): (() => void) | undefined {
+  if (e.altKey) {
+    const alt: Record<string, (() => void) | undefined> = {
+      t: actions.toggleTerminal,
+      d: actions.toggleDiffs,
+      j: actions.toggleSession,
+      n: actions.newSession,
+      s: actions.toggleSettings,
+      m: actions.toggleMini,
+    };
+    const hit = alt[e.key];
+    if (hit) return hit;
+  }
+  if (e.key === 'Escape') return actions.closeFocused;
+  if (e.key === ' ' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    return actions.toggleMic;
+  }
+  return undefined;
+}
+
 export function attachShortcuts(actions: ShortcutActions): () => void {
   const ac = new AbortController();
 
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (isTextFocused()) return;
-
-    if (e.altKey && e.key === 't') {
+    const action = pickAction(e, actions);
+    if (action) {
       e.preventDefault();
-      actions.toggleTerminal();
-      return;
-    }
-    if (e.altKey && e.key === 'd') {
-      e.preventDefault();
-      actions.toggleDiffs();
-      return;
-    }
-    if (e.altKey && e.key === 'j') {
-      e.preventDefault();
-      actions.toggleSession();
-      return;
-    }
-    if (e.altKey && e.key === 'n') {
-      e.preventDefault();
-      actions.newSession();
-      return;
-    }
-    if (e.altKey && e.key === 's') {
-      e.preventDefault();
-      actions.toggleSettings();
-      return;
-    }
-    if (e.altKey && e.key === 'm') {
-      e.preventDefault();
-      actions.toggleMini();
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      actions.closeFocused();
-      return;
-    }
-    if (e.key === ' ' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.repeat) {
-      e.preventDefault();
-      actions.toggleMic();
+      action();
     }
   }, { signal: ac.signal });
 

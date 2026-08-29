@@ -42,8 +42,14 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
+/** Trim trailing decimal zeros ("1.230" -> "1.23", "1.000" -> "1"). A hand scan:
+ *  the old /(\.\d*?)0+$/ lazy-plus-anchored pair backtracked super-linearly. */
 function trimZero(s: string): string {
-  return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+  if (!s.includes('.')) return s;
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '0') end--;
+  if (end > 0 && s[end - 1] === '.') end--;
+  return s.slice(0, end);
 }
 
 /** Peak magnitude of a band array, clamped to [0, 1]. */
