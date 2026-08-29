@@ -789,7 +789,7 @@ async function bootstrap(): Promise<void> {
       const wins = [...document.querySelectorAll<HTMLElement>('.terminal-window')];
       if (wins.length > 0) {
         const top = wins.reduce((a, b) =>
-          (parseInt(b.style.zIndex || '0') > parseInt(a.style.zIndex || '0') ? b : a));
+          (parseInt(b.style.zIndex || '0') > parseInt(a.style.zIndex || '0') ? b : a), wins[0]);
         top.querySelector<HTMLElement>('.tab-close')?.click();
       }
     },

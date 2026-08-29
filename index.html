@@ -68,6 +68,7 @@
               id="claude-dir"
               class="speak-input"
               type="text"
+              aria-label="Project directory for Claude"
               placeholder="project dir for Claude (it can edit/run there by voice)"
               autocomplete="off"
               list="dir-history"
@@ -83,6 +84,7 @@
             <select
               id="set-model"
               class="settings-select"
+              aria-label="Model"
               title="Each tier picks the latest model of that tier (Opus is Opus 4.8 today)."
             >
               <option value="">default model</option>
@@ -92,7 +94,7 @@
             </select>
             <!-- Effort options are rebuilt per model in main.ts (levels are model-dependent;
                  ultracode is Opus-only). Only the default stays static here. -->
-            <select id="set-effort" class="settings-select">
+            <select id="set-effort" class="settings-select" aria-label="Reasoning effort">
               <option value="">default effort</option>
             </select>
           </div>
@@ -102,7 +104,7 @@
           <div class="hud-group settings-col">
             <div class="hud-group settings-row">
               <button id="mic-btn">talk</button>
-              <select id="set-mic" class="settings-select"><option value="">default mic</option></select>
+              <select id="set-mic" class="settings-select" aria-label="Microphone"><option value="">default mic</option></select>
             </div>
             <label class="settings-check">
               <input id="set-bargein" type="checkbox" />
@@ -117,19 +119,19 @@
         <div class="settings-section">
           <span class="settings-label">voice</span>
           <div class="hud-group settings-col">
-            <select id="set-voice" class="settings-select"><option value="">Oracle default (Emma)</option></select>
+            <select id="set-voice" class="settings-select" aria-label="Voice"><option value="">Oracle default (Emma)</option></select>
             <label class="settings-check">
               <input id="set-engine" type="checkbox" />
               neural voice (Kokoro)
             </label>
             <div class="settings-slider-row">
               <span class="settings-slider-label">speed</span>
-              <input id="set-rate" type="range" min="-10" max="10" value="0" class="settings-range" />
+              <input id="set-rate" type="range" min="-10" max="10" value="0" class="settings-range" aria-label="Voice speed" />
               <span id="set-rate-val" class="settings-slider-val">0</span>
             </div>
             <div class="settings-slider-row">
               <span class="settings-slider-label">pitch</span>
-              <input id="set-pitch" type="range" min="-10" max="10" value="0" class="settings-range" />
+              <input id="set-pitch" type="range" min="-10" max="10" value="0" class="settings-range" aria-label="Voice pitch" />
               <span id="set-pitch-val" class="settings-slider-val">0</span>
             </div>
           </div>
@@ -139,7 +141,7 @@
           <div class="hud-group settings-col">
             <div class="settings-slider-row">
               <span class="settings-slider-label">pause</span>
-              <input id="set-vad" type="range" min="300" max="2000" step="30" value="810" class="settings-range" />
+              <input id="set-vad" type="range" min="300" max="2000" step="30" value="810" class="settings-range" aria-label="Pause before send, milliseconds" />
               <span id="set-vad-val" class="settings-slider-val">810ms</span>
             </div>
           </div>
@@ -157,7 +159,7 @@
             </label>
             <div class="settings-slider-row">
               <span class="settings-slider-label">snap</span>
-              <input id="set-snap" type="range" min="0" max="40" step="1" value="12" class="settings-range" />
+              <input id="set-snap" type="range" min="0" max="40" step="1" value="12" class="settings-range" aria-label="Window snap distance, pixels" />
               <span id="set-snap-val" class="settings-slider-val">12px</span>
             </div>
           </div>
