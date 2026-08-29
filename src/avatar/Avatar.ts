@@ -485,7 +485,7 @@ export class Avatar {
     this.material.dispose();
     this.renderer.dispose();
     if (this.container && this.renderer.domElement.parentNode === this.container) {
-      this.container.removeChild(this.renderer.domElement);
+      this.renderer.domElement.remove();
     }
     this.container = null;
   }

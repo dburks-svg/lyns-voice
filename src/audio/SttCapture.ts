@@ -177,7 +177,7 @@ export class SttCapture {
     this.analyser.getByteFrequencyData(this.buffer);
     this.opts.onLevel?.(computeLevel(this.buffer));
     if (this.opts.onBands) {
-      if (!this.bandsBuffer || this.bandsBuffer.length !== this.bandCount) {
+      if (this.bandsBuffer?.length !== this.bandCount) {
         this.bandsBuffer = new Float32Array(this.bandCount);
       }
       this.opts.onBands(computeBands(this.buffer, this.bandCount, this.bandsBuffer));

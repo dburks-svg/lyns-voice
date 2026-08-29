@@ -30,8 +30,8 @@ const MAX_LINES = 500;
 
 export class SessionPanel {
   readonly el: HTMLElement;
-  private streamBody: HTMLElement;
-  private input: HTMLTextAreaElement;
+  private readonly streamBody: HTMLElement;
+  private readonly input: HTMLTextAreaElement;
   private cleanup: (() => void) | null = null;
 
   constructor(opts: SessionPanelOptions) {
@@ -121,7 +121,7 @@ export class SessionPanel {
     line.textContent = text;
     body.appendChild(line);
     while (body.childElementCount > MAX_LINES && body.firstElementChild) {
-      body.removeChild(body.firstElementChild);
+      body.firstElementChild.remove();
     }
     if (nearBottom) body.scrollTop = body.scrollHeight;
   }

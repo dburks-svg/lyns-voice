@@ -126,7 +126,7 @@
 
 .s-line {
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   padding: 1px 0;
 }
 

@@ -165,12 +165,13 @@ export function attachDragResize(opts: DragResizeOptions): () => void {
     }, { signal: sig });
   });
 
-  function clampX(x: number): number {
-    return Math.max(0, Math.min(x, window.innerWidth - 60));
-  }
-  function clampY(y: number): number {
-    return Math.max(0, Math.min(y, window.innerHeight - 40));
-  }
-
   return () => ac.abort();
+}
+
+/** Keep at least a grabbable sliver of the panel inside the viewport. */
+function clampX(x: number): number {
+  return Math.max(0, Math.min(x, window.innerWidth - 60));
+}
+function clampY(y: number): number {
+  return Math.max(0, Math.min(y, window.innerHeight - 40));
 }

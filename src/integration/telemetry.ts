@@ -49,11 +49,10 @@ function trimZero(s: string): string {
 /** Peak magnitude of a band array, clamped to [0, 1]. */
 export function peakLevel(bands: Float32Array): number {
   let peak = 0;
-  for (let i = 0; i < bands.length; i += 1) {
-    const v = bands[i];
+  for (const v of bands) {
     if (v > peak) peak = v;
   }
-  return peak > 1 ? 1 : peak < 0 ? 0 : peak;
+  return Math.min(1, Math.max(0, peak));
 }
 
 export interface UsageEvent {
@@ -138,7 +137,8 @@ export class TelemetryPanels {
   }
 
   /** Append a transcript line (role-tagged, XSS-safe via textContent). */
-  addTranscript(role: 'user' | 'q' | string, text: string): void {
+  /** `role` is 'user' or 'q' for the two speakers (it becomes the `t-<role>` CSS class). */
+  addTranscript(role: string, text: string): void {
     const host = this.refs.transcript;
     if (!host) return;
     host.querySelector('.t-empty')?.remove();
@@ -246,7 +246,7 @@ export class TelemetryPanels {
 
   private cap(host: HTMLElement, max: number): void {
     while (host.childElementCount > max && host.firstElementChild) {
-      host.removeChild(host.firstElementChild);
+      host.firstElementChild.remove();
     }
   }
 }

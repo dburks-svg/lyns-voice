@@ -88,7 +88,7 @@ function findBoundary(s: string, from: number): { end: number; rest: number } | 
 /** Index of a trailing unmatched `<<` in `s` (no `>>` anywhere after it), or -1. */
 function unclosedOpen(s: string): number {
   const open = s.lastIndexOf('<<');
-  return open !== -1 && s.indexOf('>>', open) === -1 ? open : -1;
+  return open !== -1 && !s.includes('>>', open) ? open : -1;
 }
 
 /**

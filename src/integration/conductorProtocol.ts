@@ -29,7 +29,7 @@ const MARKER = /<<\s*(spawn|tell|propose)\s*:([^>]{0,512})>>/gi;
 const NAME = /^[a-z0-9 _-]{1,40}$/i;
 
 export function parseConductor(text: string): ParsedConductor {
-  if (!text || text.indexOf('<<') === -1) {
+  if (!text || !text.includes('<<')) {
     return { stripped: text, directives: [] };
   }
   const directives: ConductorDirective[] = [];
